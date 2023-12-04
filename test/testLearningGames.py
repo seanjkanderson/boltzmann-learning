@@ -90,7 +90,7 @@ class Test020LearningGames(unittest.TestCase):
         self.assertEqual(lg.gamma, 0.0)
         self.assertEqual(lg.number_updates, 0)
         self.assertEqual(lg.min_cost, 0)
-        self.assertEqual(lg.max_cost, -numpy.inf)
+        self.assertEqual(lg.max_cost, 0)
         self.assertEqual(lg.inverse_temperature, 0.01)
         self.assertEqual(len(lg.energy), len(measurement_set))
         for m in measurement_set:
