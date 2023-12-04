@@ -173,22 +173,7 @@ class Test020LearningGames(unittest.TestCase):
             steps,
             alpha1,
             alpha0,
-        ) = lg.get_regret()
-        print(
-            "  steps        = {:13d}  alpha1       = {:13.6f}  alpha0       = {:13.6f}".format(
-                steps, alpha1, alpha0
-            )
-        )
-        print(
-            "  minimum_cost = {:13.6f}  average_cost = {:13.6f}  cost_bound   = {:13.6f}".format(
-                minimum_cost, average_cost, cost_bound
-            )
-        )
-        print(
-            "                                regret       = {:13.6f}  regret_bound = {:13.6f}".format(
-                regret, regret_bound
-            )
-        )
+        ) = lg.get_regret(display=True)
 
         self.assertEqual(lg.min_cost, 0.0)
         self.assertEqual(lg.max_cost, 3.0)
@@ -221,22 +206,7 @@ class Test020LearningGames(unittest.TestCase):
             steps,
             alpha1,
             alpha0,
-        ) = lg.get_regret()
-        print(
-            "  steps        = {:13d}  alpha1       = {:13.6f}  alpha0       = {:13.6f}".format(
-                steps, alpha1, alpha0
-            )
-        )
-        print(
-            "  minimum_cost = {:13.6f}  average_cost = {:13.6f}  cost_bound   = {:13.6f}".format(
-                minimum_cost, average_cost, cost_bound
-            )
-        )
-        print(
-            "                                regret       = {:13.6f}  regret_bound = {:13.6f}".format(
-                regret, regret_bound
-            )
-        )
+        ) = lg.get_regret(display=True)
 
         self.assertEqual(lg.min_cost, 0.0)
         self.assertEqual(lg.max_cost, 3.0)
