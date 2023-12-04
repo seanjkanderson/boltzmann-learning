@@ -6,7 +6,7 @@ This module implements a low-regret learning algorithm for an agent that seeks t
 
 The decision made by the agent at time `t` consists of selecting an action `a(t)` among a set `action_set` to minimize a cost `J(a(t),w(t))` that depend on the action `a(t)` as well as on a latent variable `w(t)` that is unknown to the agent.
 
-To decide on the value of the action `a(t)`, the agent has available a stream of measurments `y(t)` taking values in a set `measurement_set`.
+To decide on the value of the action `a(t)`, the agent has available a stream of measurements `y(t)`, each taking values in a set `measurement_set`.
 
 The relationships between actions, measurements, and latent variables are unknown and need to be estimated from data. To this effect, we assume that for some time instants `t`, we learn “after-the-fact” the value of the cost `J(a,w(t))` associated with all possible actions in `action_set`.
 
@@ -43,25 +43,25 @@ We are especially interested in scenarios where the value of the cost `J(a(t),w(
 
 The following examples can be found in the `example/` folder:
 
-*ATTENTION: YET TO BE DONE*
+1. `RPS_vs_fixed.ipynb`: learn optimal policy for the `Rock-Paper-Scissors`   game, against an opponent that uses a fixed policy
 
-+ `RPS_vs_fixed.py`: learn optimal policy for the `Rock-Paper-Scissors`   game, against an opponent that uses a fixed policy
+2. `RPS_vs_round_robin.ipynb`: learn optimal policy for the `Rock-Paper-Scissors` game, against an opponent that cycles between actions in a deterministic fashion
 
-+ `RPS_vs_round_robin.py`: learn optimal policy for the `Rock-Paper-Scissors` game, against an opponent that cycles between actions in a deterministic fashion
+3. `RPS_vs_bad_rng.ipynb`: learn optimal policy for the `Rock-Paper-Scissors`   game, against an opponent that uses a randomized policy with a bad generator of random numbers
 
-+ `RPS_vs_fixed.py`: learn optimal policy for the `Rock-Paper-Scissors`   game, against an opponent that uses a randomized policy with a bad generator of random numbers
+- `RPS_self_play.ipynb`: learn optimal policy for the `Rock-Paper-Scissors`   game, against an opponent that uses the same learning algorithm
 
-+ `RPS_self_play.py`: learn optimal policy for the `Rock-Paper-Scissors`   game, against an opponent that uses the same learning algorithm
+- `PD_vs_Nash.ipynb`: learn optimal policy for the `Prisoner's Dilemma` game, against an opponent that uses a Nash policy
 
-+ `PD_vs_Nash.py`: learn optimal policy for the `Prisoner's Dilemma` game, against an opponent that uses a Nash policy
+- `PD_self_play.ipynb`: learn optimal policy for the `Prisoner's Dilemma` game, against an opponent that uses the same learning algorithm
 
-+ `PD_self_play.py`: learn optimal policy for the `Prisoner's Dilemma` game, against an opponent that uses the same learning algorithm
+- `CCF_vs_fixed.ipynb`: learn optimal policy for a `Credit Card Fraude` game, against an opponent that uses a fixed policy
 
-+ `CCF_vs_fixed.py`: learn optimal policy for a `Credit Card Fraude` game, against an opponent that uses a fixed policy
+- `CCF_self_play.ipynb`: learn optimal policy for a `Credit Card Fraude` game, against an opponent that uses the same learning algorithm
 
-+ `CCF_self_play.py`: learn optimal policy for a `Credit Card Fraude` game, against an opponent that uses the same learning algorithm
+- `NS_vs_fixed.ipynb`: learn optimal policy for a `Network Security` game, against an opponent that uses a fixed policy
 
-+ `NS_vs_fixed.py`: learn optimal policy for a `Network Security` game, against an opponent that uses a fixed policy
+**ATTENTION: items with `circle` instead of number have not yet been done**
 
 ## Contact Information
 
