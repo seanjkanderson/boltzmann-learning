@@ -38,7 +38,7 @@ class LearningGame:
     def __init__(
         self,
         action_set: set[Action],
-        measurement_set: set[Measurement] = {},
+        measurement_set: set[Measurement] = {None},
         gamma: float = 0.0,
         inverse_temperature: float = 0.01,
         seed: int = None,
@@ -48,7 +48,7 @@ class LearningGame:
         Args:
             action_set (set[Action]): set of all possible actions
             measurement_set (set[Measurement], optional): set of all possible measurements.
-                Defaults to {}.
+                Defaults to {None}.
             gamma (float, optional): information decay rate (0.0 means no decay).
                 Defaults to 0.0.
             inverse_temperature (float, optional): inverse of thermodynamic temperature
@@ -72,6 +72,14 @@ class LearningGame:
         self.inverse_temperature = inverse_temperature
         """inverse_temperature (float): inverse of thermodynamic temperature for the Boltzmann distribution."""
 
+        ## initialize random number generator
+        self.rng = numpy.random.default_rng(seed)
+        """rng (numpy.random._generator.Generator): random number generator to select actions"""
+
+        self.reset()
+
+    def reset(self):
+        """Reset all parameters: total cost, min/max costs, energies"""
         ## initialize variables to compute regret
         self.total_cost = 0.0
         """average_cost (float): average cost incurred so far; used to compute regret"""
@@ -82,7 +90,7 @@ class LearningGame:
         ## initialize bounds
         self.min_cost = 0  # The result requires min_cost<=0
         """min_cost (float): minimum value of the cost"""
-        self.max_cost = -numpy.inf
+        self.max_cost = 0  # The result requires max_cost>=0
         """max_cost (float): maximum value of the cost"""
 
         ## initialize energies
@@ -92,10 +100,6 @@ class LearningGame:
         """energy (dict[Measurement:dict[Action:float]] 
             self.energy[y][a] (float): energy associated with action a and measurements y
         """
-
-        ## initialize random number generator
-        self.rng = numpy.random.default_rng(seed)
-        """rng (numpy.random._generator.Generator): random number generator to select actions"""
 
     def get_action(self, measurement: Measurement):
         """Gets (optimal) action for a given measurement
@@ -167,7 +171,9 @@ class LearningGame:
                 for a in self.action_set:
                     self.energy[m][a] = (1 - self.gamma) * self.energy[m][a]
 
-    def get_regret(self) -> tuple[float, float, float]:
+    def get_regret(
+        self, display=False
+    ) -> tuple[float, float, float, float, float, int, float, float]:
         """Computes regret based on after-the-fact costs in update_energies()
 
         Returns:
@@ -274,6 +280,23 @@ class LearningGame:
             print(
                 "  alpha1 = {:10.6f}  alpha00 = {:10.6f}  alpha0 = {:10.6f}  alpha1*alpha0 = {:10.6f}".format(
                     alpha1, alpha00, alpha0, alpha0 * alpha1
+                )
+            )
+
+        if display:
+            print(
+                "  number_updates = {:13d}  alpha1       = {:13.6f}  alpha0       = {:13.6f}".format(
+                    self.number_updates, alpha1, alpha0
+                )
+            )
+            print(
+                "  minimum_cost   = {:13.6f}  average_cost = {:13.6f}  cost_bound   = {:13.6f}".format(
+                    minimum_cost, average_cost, cost_bound
+                )
+            )
+            print(
+                "                                  regret       = {:13.6f}  regret_bound = {:13.6f}".format(
+                    regret, regret_bound
                 )
             )
 
