@@ -43,17 +43,17 @@ We are especially interested in scenarios where the value of the cost `J(a(t),w(
 
 The following examples can be found in the `example/` folder:
 
-1. `RPS_vs_fixed.ipynb`: learn optimal policy for the `Rock-Paper-Scissors`   game, against an opponent that uses a fixed policy
+1. `RPS_vs_fixed.ipynb`: learn optimal policy for the `Rock-Paper-Scissors` game, against an opponent that uses a fixed policy
 
 2. `RPS_vs_round_robin.ipynb`: learn optimal policy for the `Rock-Paper-Scissors` game, against an opponent that cycles between actions in a deterministic fashion
 
-3. `RPS_vs_bad_rng.ipynb`: learn optimal policy for the `Rock-Paper-Scissors`   game, against an opponent that uses a randomized policy with a bad generator of random numbers
+3. `RPS_vs_bad_rng.ipynb`: learn optimal policy for the `Rock-Paper-Scissors` game, against an opponent that uses a randomized policy with a bad generator of random numbers
 
-- `RPS_self_play.ipynb`: learn optimal policy for the `Rock-Paper-Scissors`   game, against an opponent that uses the same learning algorithm
+4. `RPS_self_play.ipynb`: learn optimal policy for the `Rock-Paper-Scissors` game, against an opponent that uses the same learning algorithm
 
-- `PD_vs_Nash.ipynb`: learn optimal policy for the `Prisoner's Dilemma` game, against an opponent that uses a Nash policy
+- `BS_vs_Nash.ipynb`: learn optimal policy for the `Battle of the sexes` game, against an opponent that uses a Nash policy
 
-- `PD_self_play.ipynb`: learn optimal policy for the `Prisoner's Dilemma` game, against an opponent that uses the same learning algorithm
+- `BS_self_play.ipynb`: learn optimal policy for the `Battle of the sexes` game, against an opponent that uses the same learning algorithm
 
 - `CCF_vs_fixed.ipynb`: learn optimal policy for a `Credit Card Fraude` game, against an opponent that uses a fixed policy
 
