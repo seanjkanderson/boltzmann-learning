@@ -101,30 +101,18 @@ class LearningGame:
             self.energy[y][a] (float): energy associated with action a and measurements y
         """
 
-    def get_action(self, measurement: Measurement):
-        """Gets (optimal) action for a given measurement
-
-        Args:
-            measurement (Measurement): measurement, which must be an element of self.measurement_set
-
-        Returns:
-            action (Action): (optimal) action
-        """
-        probabilities = self.get_Boltzmann_distribution(measurement)
-        # get integer
-        action_index = get_random_integer(self.rng, probabilities)
-        # convert to action
-        action = list(self.action_set)[action_index]
-        return action
-
-    def get_Boltzmann_distribution(self, measurement: Measurement):
+    def get_Boltzmann_distribution(
+        self, measurement: Measurement
+    ) -> tuple[numpy.array, float]:
         """Returns a Boltzmann distribution
 
         Args:
             measurement (Measurement): measurement, which must be an element of self.measurement_set
 
         Returns:
-            probabilities (numpy.array)
+            tuple[numpy.array,float]:
+                probabilities (numpy.array): probability distribution
+                entropy (float): distribution's entropy
         """
         # TODO: It seems a little dangerous to rely on set order to construct the probability array
         #        An alternative would be to keep probabilities as a dict, but this would be less efficient
@@ -132,11 +120,33 @@ class LearningGame:
         # compute Boltzmann distribution
         energies_array = numpy.array([v for (k, v) in self.energy[measurement].items()])
         min_energy = numpy.min(energies_array)
-        probabilities = numpy.exp(
-            -self.inverse_temperature * (energies_array - min_energy)
-        )
-        probabilities = probabilities / numpy.sum(probabilities)
-        return probabilities
+        exponent = -self.inverse_temperature * (energies_array - min_energy)
+        probabilities = numpy.exp(exponent)
+        total = numpy.sum(probabilities)
+        # compute entropy, in a way that is safe even if some probabilities become zero
+        entropy = -numpy.dot(probabilities, exponent) / total + numpy.log(total)
+        # normalize probability
+        probabilities = probabilities / total
+        return (probabilities, entropy)
+
+    def get_action(self, measurement: Measurement) -> tuple[Action, numpy.array, float]:
+        """Gets (optimal) action for a given measurement
+
+        Args:
+            measurement (Measurement): measurement, which must be an element of self.measurement_set
+
+        Returns:
+            tuple[Action,numpy.array,float]:
+                action (Action): (optimal) action
+                probabilities (numpy.array): probability distribution used to select action
+                entropy (float): distribution's entropy
+        """
+        (probabilities, entropy) = self.get_Boltzmann_distribution(measurement)
+        # get integer
+        action_index = get_random_integer(self.rng, probabilities)
+        # convert to action
+        action = list(self.action_set)[action_index]
+        return (action, probabilities, entropy)
 
     def update_energies(self, measurement: Measurement, costs: dict[Action, float]):
         """Updates energies based on after-the-fact costs
@@ -155,7 +165,7 @@ class LearningGame:
 
         ## update regrets
         average_cost = 0
-        probabilities = self.get_Boltzmann_distribution(measurement)
+        (probabilities, entropy) = self.get_Boltzmann_distribution(measurement)
         for k, a in enumerate(self.action_set):
             average_cost += probabilities[k] * costs[a]
         self.total_cost = (1 - self.gamma) * self.total_cost + average_cost
