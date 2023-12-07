@@ -49,11 +49,9 @@ The following examples can be found in the `example/` folder:
 
 3. `RPS_vs_bad_rng.ipynb`: learn optimal policy for the `Rock-Paper-Scissors` game, against an opponent that uses a randomized policy with a bad generator of random numbers
 
-4. `RPS_self_play.ipynb`: learn optimal policy for the `Rock-Paper-Scissors` game, against an opponent that uses the same learning algorithm
+4. `RPS_selfplay.ipynb`: learn optimal policy for the `Rock-Paper-Scissors` game, against an opponent that uses the same learning algorithm
 
-- `BS_vs_Nash.ipynb`: learn optimal policy for the `Battle of the sexes` game, against an opponent that uses a Nash policy
-
-- `BS_self_play.ipynb`: learn optimal policy for the `Battle of the sexes` game, against an opponent that uses the same learning algorithm
+5. `BS_selfplay.ipynb`: learn optimal policy for the `Battle of the sexes` game, against an opponent that uses the same learning algorithm
 
 - `CCF_vs_fixed.ipynb`: learn optimal policy for a `Credit Card Fraude` game, against an opponent that uses a fixed policy
 
