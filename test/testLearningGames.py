@@ -104,7 +104,7 @@ class Test020LearningGames(unittest.TestCase):
 
         # Check distribution from get_action (starts as uniform)
         M = 10000
-        As = [lg.get_action("y1") for i in range(M)]
+        As = [lg.get_action("y1")[0] for i in range(M)]
         histogram = {k: 0 for k in action_set}
         for a in As:
             histogram[a] += 1
@@ -136,7 +136,7 @@ class Test020LearningGames(unittest.TestCase):
 
         # new distribution: check distribution from get_action (starts as uniform)
         M = 10000
-        As = [lg.get_action("y1") for i in range(M)]
+        As = [lg.get_action("y1")[0] for i in range(M)]
         histogram = {k: 0 for k in action_set}
         for a in As:
             histogram[a] += 1
