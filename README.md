@@ -53,9 +53,9 @@ The following examples can be found in the `example/` folder:
 
 5. `BS_selfplay.ipynb`: learn optimal policy for the `Battle of the sexes` game, against an opponent that uses the same learning algorithm
 
-- `CCF_vs_fixed.ipynb`: learn optimal policy for a `Credit Card Fraude` game, against an opponent that uses a fixed policy
+- `CCF_vs_fixed.ipynb`: learn optimal policy for a `Credit Card Fraud` game, against an opponent that uses a fixed policy
 
-- `CCF_self_play.ipynb`: learn optimal policy for a `Credit Card Fraude` game, against an opponent that uses the same learning algorithm
+- `CCF_self_play.ipynb`: learn optimal policy for a `Credit Card Fraud` game, against an opponent that uses the same learning algorithm
 
 - `NS_vs_fixed.ipynb`: learn optimal policy for a `Network Security` game, against an opponent that uses a fixed policy
 
