@@ -89,8 +89,8 @@ class Test020LearningGames(unittest.TestCase):
         self.assertEqual(lg.measurement_set, measurement_set)
         self.assertEqual(lg.gamma, 0.0)
         self.assertEqual(lg.number_updates, 0)
-        self.assertEqual(lg.min_cost, 0)
-        self.assertEqual(lg.max_cost, 0)
+        self.assertEqual(lg.min_cost, +numpy.inf)
+        self.assertEqual(lg.max_cost, -numpy.inf)
         self.assertEqual(lg.inverse_temperature, 0.01)
         self.assertEqual(len(lg.energy), len(measurement_set))
         for m in measurement_set:
@@ -175,7 +175,7 @@ class Test020LearningGames(unittest.TestCase):
             alpha0,
         ) = lg.get_regret(display=True)
 
-        self.assertEqual(lg.min_cost, 0.0)
+        self.assertEqual(lg.min_cost, 1.0)
         self.assertEqual(lg.max_cost, 3.0)
         self.assertLess(average_cost, cost_bound)
         self.assertLess(regret, regret_bound)
@@ -208,7 +208,7 @@ class Test020LearningGames(unittest.TestCase):
             alpha0,
         ) = lg.get_regret(display=True)
 
-        self.assertEqual(lg.min_cost, 0.0)
+        self.assertEqual(lg.min_cost, 1.0)
         self.assertEqual(lg.max_cost, 3.0)
         self.assertLess(average_cost, cost_bound)
         self.assertLess(regret, regret_bound)

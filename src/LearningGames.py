@@ -88,9 +88,9 @@ class LearningGame:
         """number_updates (int): total number of updates"""
 
         ## initialize bounds
-        self.min_cost = 0  # The result requires min_cost<=0
+        self.min_cost = numpy.inf
         """min_cost (float): minimum value of the cost"""
-        self.max_cost = 0  # The result requires max_cost>=0
+        self.max_cost = -numpy.inf
         """max_cost (float): maximum value of the cost"""
 
         ## initialize energies
@@ -255,15 +255,13 @@ class LearningGame:
                 len(self.measurement_set)
                 * numpy.log(len(self.action_set))
                 / (self.inverse_temperature * self.number_updates)
-                + alpha00 * len(self.measurement_set) / self.inverse_temperature
+                - delta0 / self.inverse_temperature
             )
         else:
             # print("   gamma != 0")
             alpha0 = self.gamma * len(self.measurement_set) * numpy.log(
                 len(self.action_set)
-            ) / self.inverse_temperature + alpha00 * len(
-                self.measurement_set
-            ) / self.inverse_temperature * (
+            ) / self.inverse_temperature + alpha00 / self.inverse_temperature * (
                 1 - pow(1 - self.gamma, self.number_updates)
             )
         cost_bound = alpha1 * (minimum_cost + alpha0)
