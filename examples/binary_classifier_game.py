@@ -1,4 +1,3 @@
-from collections import OrderedDict
 import itertools
 
 import numpy as np
@@ -8,31 +7,23 @@ import lightgbm as lgb
 import pickle
 
 from src.utils import plot_simulation_results
+from src.dataset_game import DatasetGame
 
 
-class DatasetGame:
+class BinaryClassifierGame(DatasetGame):
 
     def __init__(self, action_set: list, measurement_set: list, action_sequence,
                  measurement_sequence, finite_measurements: bool, type1_weight=1., type2_weight=1.):
-        """Create game
+        """Create game. The goal is to minimize the cost := type1_weight*p(false pos) + type2_weight*p(false neg)
 
-        Args: TODO: finish updating
-            action_sequence: sequence of actions for player 2
+        Args:
+            type1_weight (float): the weight for false positive rates
+            type2_weight (float): the weight for false negative rates
         """
-        self.action_sequence = action_sequence.squeeze()
-        self.measurement_sequence = measurement_sequence.squeeze()
-        self.counter = -1
+        super().__init__(action_set=action_set, measurement_set=measurement_set, action_sequence=action_sequence,
+                         measurement_sequence=measurement_sequence, finite_measurements=finite_measurements)
         self.type1_weight = type1_weight
         self.type2_weight = type2_weight
-        self.action_set = action_set
-        self.measurement_set = measurement_set
-        self.finite_measurements = finite_measurements
-        # initialize measurement
-        if self.finite_measurements:
-            self.measurement = measurement_set[0]
-        else:
-            self.measurement = {k: 0. for k in measurement_set}
-            self.measurement[measurement_set[0]] = 1.  # the measurements must sum to 1.
 
     def cost(self, p1_action, p2_action) -> float:
         """Returns game outcome
@@ -51,43 +42,7 @@ class DatasetGame:
         #               = A*I(a_1^T=1, a_2^T=0)/T + B*I(a_1^T=0, a_2^T=1)/T + total_cost^{T-1}*(T-1)/T
         false_pos = (p1_action == 1) and (p2_action == 0)
         false_neg = (p1_action == 0) and (p2_action == 1)
-        return self.type1_weight*false_pos + self.type2_weight*false_neg
-
-    def get_measurement(self):
-        """get measurement for next move
-
-        Returns:
-            measurement: measurement for next move
-        """
-        return self.measurement
-
-    def play(self, p1_action) -> tuple[float, OrderedDict[int, float]]:
-        """Play game
-
-        Args:
-            p1_action: action for player 1
-
-        Returns:
-            tuple[float,dict(str,float)]
-            cost (float): -1 if player 1 wins, +1 if player 1 loses, 0 draw
-            all_costs (dict[str,float]): dictionary with costs for all actions of player 1
-        """
-        # select action for player 2
-        p2_action = self.action_sequence[self.counter]
-        self.counter += 1
-        if self.counter >= len(self.action_sequence) or self.counter >= len(self.measurement_sequence):
-            raise ValueError('player 2 ran out of actions or there are no more measurements')
-        # update measurement
-        all_measurements = self.measurement_sequence[self.counter]
-        if self.finite_measurements:
-            self.measurement = all_measurements
-        else:
-            self.measurement = {key: meas for key, meas in zip(self.measurement_set, all_measurements)}
-        # cost for given action of player 1
-        cost = self.cost(p1_action, p2_action)
-        # costs for all actions of player 1
-        all_costs = OrderedDict([(a, self.cost(a, p2_action)) for a in self.action_set])
-        return cost, all_costs
+        return self.type1_weight * false_pos + self.type2_weight * false_neg
 
 
 def classifier(train_length: int, test_length_first: int, test_length_second: int, rng: np.random, type1_weight, type2_weight):
@@ -192,10 +147,11 @@ def ember_classifier(n_train, n_features, type1_weight, type2_weight):
 
     # need to include probabilities of all classes
     measurement_sequence = np.array([1. - measurement_sequence, measurement_sequence]).T
-    return measurement_sequence, p2_act_sequence, classifier_predictions, threshold
+    measurement_set = [0, 1]
+    return measurement_sequence, p2_act_sequence, classifier_predictions, threshold, measurement_set
 
 
-def toy_classifier(n_points, type1_weight, type2_weight):
+def toy_classifier(n_points, type1_weight, type2_weight, finite_measurements: bool):
 
     # create a dataset where the classifier's probability is uniformly sampled on [0, 1]
     measurement_sequence = np.random.uniform(size=n_points)
@@ -214,52 +170,14 @@ def toy_classifier(n_points, type1_weight, type2_weight):
     threshold = find_optimal_threshold(p2_act_sequence, measurement_sequence, type1_weight, type2_weight)
     classifier_predictions = (measurement_sequence > threshold).astype(int)
 
-    measurement_sequence = np.array([1-measurement_sequence, measurement_sequence]).T
+    if finite_measurements:
+        measurement_sequence = classifier_predictions
+    else:
+        measurement_sequence = np.array([1-measurement_sequence, measurement_sequence]).T
 
     measurement_set = [0, 1]
     return measurement_sequence, p2_act_sequence, classifier_predictions, threshold, \
         len(measurement_sequence), measurement_set
-
-
-def three_classifiers(n_points, finite_measurements: bool):
-
-    def generate_probabilities_matrix(prob_matrix):
-        n = prob_matrix.shape[1]  # Number of probabilities in each set
-
-        # Generate all possible outcomes (binary strings of length n)
-        outcomes = np.array(list(itertools.product([0, 1], repeat=n)))
-
-        # Convert the probabilities list to a NumPy array
-        prob_matrix = np.array(prob_matrix)
-
-        # Calculate the probability of each outcome for each set of probabilities
-        outcome_probabilities = []
-        for probs in prob_matrix:
-            # Compute the probabilities for this set
-            probs_matrix = probs * outcomes + (1 - probs) * (1 - outcomes)
-            outcome_probs = np.prod(probs_matrix, axis=1)
-            outcome_probabilities.append(outcome_probs)
-
-        outcomes_strings = ["".join(outcome.astype(str)) for outcome in outcomes]
-        return outcomes_strings, np.array(outcome_probabilities)
-
-    measurement_sequence_1 = np.random.uniform(size=n_points)
-    measurement_sequence_2 = 1 - measurement_sequence_1
-    measurement_sequence_3 = 1 - measurement_sequence_1
-
-    indep_probs = np.vstack((measurement_sequence_1, measurement_sequence_2, measurement_sequence_3)).T
-    outcomes, measurement_sequence = generate_probabilities_matrix(indep_probs)
-    if finite_measurements:
-        measurement_sequence = np.array([(indep_probs[:, 0] > 0.5).astype(int), (indep_probs[:, 1] > 0.75).astype(int), (indep_probs[:, 2] > 0.95).astype(int)]).T
-        measurement_sequence = np.array(["".join(outcome.astype(str)) for outcome in measurement_sequence])
-
-    random_values = np.random.uniform(size=len(measurement_sequence_1))
-    p2_act_sequence = (random_values < measurement_sequence_1).astype(int)
-
-    # TODO: this is arbitrary and perhaps something more insightful can be done
-    classifier_prediction = (indep_probs.mean(axis=1) > 0.5).astype(int)
-
-    return measurement_sequence, p2_act_sequence, classifier_prediction, outcomes
 
 
 if __name__ == '__main__':
@@ -280,19 +198,19 @@ if __name__ == '__main__':
     #                                                              rng=def_rng,
     #                                                              type1_weight=1.,
     #                                                              type2_weight=2.)
-    # meas_sequence, p2_act_sequence, classifier_action, classifier_threshold = ember_classifier(n_train=100000,
+    # meas_sequence, p2_act_sequence, classifier_action, classifier_threshold, outcomes_set = ember_classifier(n_train=100000,
     #                                                                                            n_features=100,
     #                                                                      type1_weight=1., type2_weight=1.)
     meas_sequence, p2_act_sequence, classifier_action, classifier_threshold, M, outcomes_set = toy_classifier(M,
                                                                                              type1_weight=type1,
-                                                                                             type2_weight=type2)
+                                                                                             type2_weight=type2,
+                                                                                             finite_measurements=finite_meas)
 
-    # meas_sequence, p2_act_sequence, classifier_action, outcomes_set = three_classifiers(M, finite_measurements=finite_meas)
-
-    game = DatasetGame(action_sequence=p2_act_sequence, measurement_sequence=meas_sequence, measurement_set=outcomes_set,
+    print('Measurement set: {}'.format(str(outcomes_set)))
+    game = BinaryClassifierGame(action_sequence=p2_act_sequence, measurement_sequence=meas_sequence, measurement_set=outcomes_set,
                        action_set=[0, 1], type1_weight=type1, type2_weight=type2, finite_measurements=finite_meas)
     lg = LearningGame(game.action_set, measurement_set=game.measurement_set, finite_measurements=finite_meas,
-                                    decay_rate=0., inverse_temperature=1e-3, seed=0)
+                                    decay_rate=0., inverse_temperature=1e-2, seed=0)
 
     lg.reset()
 
@@ -305,13 +223,12 @@ if __name__ == '__main__':
     tt_one = 0
     for idx in range(M):
         # Play
-        measurement = game.get_measurement() # TODO: seems like measurements might be off by 1 index?
+        measurement = game.get_measurement()
         (action, prob, entropy[idx]) = lg.get_action(measurement, idx)
         (costs[idx], all_costs) = game.play(action)
         p1_action.append(action)
         # Learn
         lg.update_energies(measurement, all_costs, idx)
-        (_, prob_update, _) = lg.get_action(measurement, idx)
         # Store regret
         (_, _, cost_bounds[idx], _, _, _, _, _) = lg.get_regret(display=False)
         # Get cost of using classifier
@@ -331,7 +248,8 @@ if __name__ == '__main__':
             meas_range = np.arange(0.1, 1.0, step=.01).round(2)
             pos_res = []
             bin_counts = []
-            # TODO: generalize the below code for multiple classes
+            # TODO: generalize the below code. Plot the optimal policy as function of measurements
+            #      Plot the FPR and FNR in ROC?
             meas_seq_probs = meas_sequence[:, 1].round(2)
             for measurement_m in meas_range:
                 (_, prob_m, _) = lg.get_action(measurement={0: 1 - measurement_m, 1: measurement_m}, time=idx)
@@ -366,7 +284,7 @@ if __name__ == '__main__':
     #             np.array(classifier_action) < p2_act_sequence).sum()) / M)
 
     iters = range(M)
-    average_costs = np.divide(np.cumsum(costs), range(1,M+1))
+    average_costs = np.divide(np.cumsum(costs), range(1, M + 1))
     average_costs_classifier = np.divide(np.cumsum(classifier_cost), range(1, M + 1))
     average_cost_bounds = np.divide(np.cumsum(cost_bounds), np.add(range(M), 1))
     print('Average costs: {} | Average classifier cost: {}'.format(average_costs[-10:].mean(), average_costs_classifier[-100:].mean()))
