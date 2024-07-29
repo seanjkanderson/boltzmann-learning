@@ -21,17 +21,35 @@ We are especially interested in scenarios where the value of the cost `J(a(t),w(
 
 ## Installation
 
-1) Make sure that `src/` is in python's import path, e.g., with
+[//]: # (1&#41; Make sure that `src/` is in python's import path, e.g., with)
 
-    ```python
-    sys.path.append("src")
+[//]: # ()
+[//]: # (    ```python)
+
+[//]: # (    sys.path.append&#40;"src"&#41;)
+
+[//]: # (    ```)
+
+[//]: # ()
+[//]: # (2&#41; Import `LearningGames.py` using)
+
+[//]: # ()
+[//]: # (    ```python )
+
+[//]: # (    import LearningGames)
+
+[//]: # (    ```)
+
+1) Switch to the LearningGames directory such that setup.py is in the current directory.
+2) Either in a virtual environment (e.g. conda or pipenv) (preferred) or using a base python distribution, run
+
+   ```bash
+   pip install -e .
     ```
-
-2) Import `LearningGames.py` using
-
-    ```python 
-    import LearningGames
-    ```
+   for editable mode (i.e. development). For a normal install run
+   ```bash
+   pip install .
+   ```
 
 3) [Optional] Run the unit testing scripts from the shell using
 
