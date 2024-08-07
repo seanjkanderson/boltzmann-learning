@@ -62,3 +62,50 @@ def plot_simulation_results(iters, costs, average_costs, entropies, average_cost
     # ax.set_ylabel('Average Cost')
     # ax.grid()
     # plt.show()
+
+
+def spider_heat():
+    import numpy as np
+    import matplotlib.pyplot as plt
+    from matplotlib.colors import Normalize
+    from matplotlib.cm import ScalarMappable
+
+    # Example data
+    n_classes = 5  # Number of classes
+    n_samples = 10  # Number of samples
+
+    # Create an example array where each row sums to 1
+    A = np.random.dirichlet(np.ones(n_classes), size=n_samples)
+
+    # Example function that maps each sample to a value in [0,1]
+    f = lambda x: np.mean(x)  # This is just an example function
+    values = np.apply_along_axis(f, 1, A)
+
+    # Radar plot setup
+    angles = np.linspace(0, 2 * np.pi, n_classes, endpoint=False).tolist()
+    angles += angles[:1]  # Complete the loop
+
+    fig, ax = plt.subplots(figsize=(8, 8), subplot_kw=dict(polar=True))
+
+    # Normalize values for colormap
+    norm = Normalize(vmin=0, vmax=1)
+    cmap = plt.get_cmap("viridis")
+
+    # Plot each sample
+    for i, sample in enumerate(A):
+        data = sample.tolist()
+        data += data[:1]  # Complete the loop
+        color = cmap(norm(values[i]))
+        ax.fill(angles, data, color=color, alpha=0.25)
+        ax.plot(angles, data, color=color, linewidth=2)
+
+    # Add color bar
+    sm = ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array(values)
+    fig.colorbar(sm, ax=ax, orientation='horizontal', pad=0.1, label='Function Value [0,1]')
+
+    # Set the labels for each vertex
+    ax.set_xticks(angles[:-1])
+    ax.set_xticklabels([f'Class {i + 1}' for i in range(n_classes)])
+
+    plt.show()

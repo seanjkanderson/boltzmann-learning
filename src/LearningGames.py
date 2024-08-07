@@ -168,8 +168,8 @@ class LearningGame:
             )
 
         else:
-            if np.abs(np.sum(list(measurement.values())) - 1.) > 1e-10:
-                raise ValueError('Measurement should sum to 1. with precision of 1e-10.')
+            if np.abs(np.sum(list(measurement.values())) - 1.) > 1e-6:
+                raise ValueError('Measurement should sum to 1. with precision of 1e-6.')
 
             energies_array = np.zeros((len(self._action_set), len(self._measurement_set)))
             for action_idx, action in enumerate(self._action_set):

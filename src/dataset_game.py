@@ -4,7 +4,7 @@ from abc import ABCMeta, abstractmethod
 
 class DatasetGame(metaclass=ABCMeta):
 
-    def __init__(self, action_set: list, measurement_set: list, action_sequence,
+    def __init__(self, action_set: list, measurement_set: list, opponent_action_sequence,
                  measurement_sequence, finite_measurements: bool):
         """Create game
 
@@ -12,13 +12,13 @@ class DatasetGame(metaclass=ABCMeta):
             action_set (list): the set of possible actions
             measurement_set (list): the set of possible measurements in the finite measurement case and the set of
                 classes for the infinite measurement case
-            action_sequence (Array-like): sequence of actions for player 2
+            opponent_action_sequence (Array-like): sequence of actions for player 2
             measurement_sequence (Array-like): sequence of measurements. For the finite measurement case, this will be a
                 vector. For the infinite measurement case, this will be an array with columns matching the order of
                 measurement_set
 
         """
-        self.action_sequence = action_sequence.squeeze()
+        self.opponent_action_sequence = opponent_action_sequence.squeeze()
         self.measurement_sequence = measurement_sequence.squeeze()
         self.counter = 0
         self.action_set = action_set
@@ -62,11 +62,11 @@ class DatasetGame(metaclass=ABCMeta):
             cost (float): -1 if player 1 wins, +1 if player 1 loses, 0 draw
             all_costs (dict[str,float]): dictionary with costs for all actions of player 1
         """
-        if self.counter >= len(self.action_sequence) or self.counter + 1 >= len(self.measurement_sequence):
+        if self.counter >= len(self.opponent_action_sequence) or self.counter + 1 >= len(self.measurement_sequence):
             raise ValueError('player 2 ran out of actions or there are no more measurements')
 
         # select action for player 2 (i.e. read topic for label/cost/opponent action.)
-        p2_action = self.action_sequence[self.counter]
+        p2_action = self.opponent_action_sequence[self.counter]
         # update measurement (i.e. read topic for measurements)
         self.counter += 1
         all_measurements = self.measurement_sequence[self.counter]

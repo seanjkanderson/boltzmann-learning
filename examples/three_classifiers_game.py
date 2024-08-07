@@ -2,13 +2,12 @@ import itertools
 
 import numpy as np
 
-from src.utils import plot_simulation_results
 from src.dataset_game import DatasetGame
 
 
 class ThreeClassifiersGame(DatasetGame):
 
-    def __init__(self, action_set: list, measurement_set: list, action_sequence,
+    def __init__(self, action_set: list, measurement_set: list, opponent_action_sequence,
                  measurement_sequence, finite_measurements: bool, type1_weight=1., type2_weight=1.):
         """Create game. The goal is to minimize the cost := type1_weight*p(false pos) + type2_weight*p(false neg)
 
@@ -16,7 +15,8 @@ class ThreeClassifiersGame(DatasetGame):
             type1_weight (float): the weight for false positive rates
             type2_weight (float): the weight for false negative rates
         """
-        super().__init__(action_set=action_set, measurement_set=measurement_set, action_sequence=action_sequence,
+        super().__init__(action_set=action_set, measurement_set=measurement_set,
+                         opponent_action_sequence=opponent_action_sequence,
                          measurement_sequence=measurement_sequence, finite_measurements=finite_measurements)
         self.type1_weight = type1_weight
         self.type2_weight = type2_weight
@@ -91,18 +91,36 @@ def three_classifiers(n_points: int, finite_measurements: bool, case: int):
     elif case == 3:
         # first classifier gets the probabilities right, the second is overconfident, third underconfident
         measurement_sequence_1 = np.random.uniform(size=n_points)
-        measurement_sequence_2 = np.random.uniform(size=n_points) + 0.2
+        measurement_sequence_2 = measurement_sequence_1 + np.random.uniform(size=n_points, low=0.0, high=0.2)
         measurement_sequence_2[measurement_sequence_2 > 1.] = 1.
-        measurement_sequence_3 = np.random.uniform(size=n_points) - 0.2
+        measurement_sequence_3 = measurement_sequence_1 + np.random.uniform(size=n_points, low=-0.2, high=0.)
         measurement_sequence_3[measurement_sequence_3 < 0.] = 0.
     else:
         raise ValueError('Not a valid option.')
 
     indep_probs = np.vstack((measurement_sequence_1, measurement_sequence_2, measurement_sequence_3)).T
-    outcomes, measurement_sequence = generate_probabilities_matrix(indep_probs)
-    if finite_measurements:
-        measurement_sequence = np.array([(indep_probs[:, 0] > 0.5).astype(int), (indep_probs[:, 1] > 0.75).astype(int), (indep_probs[:, 2] > 0.95).astype(int)]).T
-        measurement_sequence = np.array(["".join(outcome.astype(str)) for outcome in measurement_sequence])
+
+    mcase = 1
+    if mcase == 1:
+        outcomes, measurement_sequence = generate_probabilities_matrix(indep_probs)
+        outcomes += ['1_1', '1_2', '1_3']
+        measurement_sequence = np.hstack((measurement_sequence, indep_probs))
+        measurement_sequence = measurement_sequence / measurement_sequence.sum(axis=1)[:, np.newaxis]
+        comp = np.linspace(0, 1, 11)
+        for entry in measurement_sequence_1:
+            comp - entry
+
+        if finite_measurements:
+            measurement_sequence = np.array([(indep_probs[:, 0] > 0.5).astype(int), (indep_probs[:, 1] > 0.75).astype(int), (indep_probs[:, 2] > 0.95).astype(int)]).T
+            measurement_sequence = np.array(["".join(outcome.astype(str)) for outcome in measurement_sequence])
+    elif mcase == 2:
+        measurement_sequence = np.vstack((1-measurement_sequence_1, measurement_sequence_1,
+                                          1-measurement_sequence_2, measurement_sequence_2,
+                                          1-measurement_sequence_3, measurement_sequence_3)).T
+        measurement_sequence = measurement_sequence / measurement_sequence.sum(axis=1)[..., np.newaxis]
+        outcomes = ['0_1', '1_1', '0_2', '1_2', '0_3', '1_3']
+    elif mcase == 3:
+        pass
 
     random_values = np.random.uniform(size=len(measurement_sequence_1))
     p2_act_sequence = (random_values < measurement_sequence_1).astype(int)
@@ -115,21 +133,23 @@ def three_classifiers(n_points: int, finite_measurements: bool, case: int):
 
 if __name__ == '__main__':
     from src.LearningGames import LearningGame
+    from src.utils import plot_simulation_results
 
-    finite_meas = True
+    finite_meas = False
     M = 100_000
     m_iter = int(M/10)
     type1 = 1.
     type2 = 1.
     def_rng = np.random.default_rng(11)
-    case = 1
+    case = 3
 
     meas_sequence, p2_act_sequence, classifier_action, outcomes_set = three_classifiers(M,
                                                                                         finite_measurements=finite_meas,
                                                                                         case=case)
 
     print('Measurement set: {}'.format(str(outcomes_set)))
-    game = ThreeClassifiersGame(action_sequence=p2_act_sequence, measurement_sequence=meas_sequence, measurement_set=outcomes_set,
+    game = ThreeClassifiersGame(opponent_action_sequence=p2_act_sequence,
+                                measurement_sequence=meas_sequence, measurement_set=outcomes_set,
                        action_set=[0, 1], type1_weight=type1, type2_weight=type2, finite_measurements=finite_meas)
     lg = LearningGame(game.action_set, measurement_set=game.measurement_set, finite_measurements=finite_meas,
                                     decay_rate=0., inverse_temperature=1e-2, seed=0)
