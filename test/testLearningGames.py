@@ -87,8 +87,6 @@ class Test020LearningGames(unittest.TestCase):
         # Check object variables
         self.assertEqual(lg.action_set, action_set)
         self.assertEqual(lg.measurement_set, measurement_set)
-        self.assertEqual(lg.gamma, 0.0)
-        self.assertEqual(lg.number_updates, 0)
         self.assertEqual(lg.min_cost, +numpy.inf)
         self.assertEqual(lg.max_cost, -numpy.inf)
         self.assertEqual(lg.inverse_temperature, 0.01)
@@ -186,7 +184,7 @@ class Test020LearningGames(unittest.TestCase):
         measurement_set = {"y1", "y2"}
         # use low temperature to converge to deterministic very fast, but bound is bad
         lg = LearningGames.LearningGame(
-            action_set, measurement_set, gamma=0.0001, inverse_temperature=0.01, seed=0
+            action_set, measurement_set, inverse_temperature=0.01, seed=0
         )
 
         M = 20000
