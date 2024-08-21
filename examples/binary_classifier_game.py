@@ -56,7 +56,7 @@ def find_optimal_threshold(y_true, y_pred_proba, A, B):
     return best_threshold
 
 
-def toy_classifier(n_points, type1_weight, type2_weight, finite_measurements: bool):
+def toy_classifier(n_points, type1_weight, type2_weight, finite_measurements: bool, case: int):
 
     # create a dataset where the classifier's probability is uniformly sampled on [0, 1]
     measurement_sequence = np.random.uniform(size=n_points)
@@ -72,17 +72,61 @@ def toy_classifier(n_points, type1_weight, type2_weight, finite_measurements: bo
     # Sample points according to probs
     p2_act_sequence = (random_values < measurement_sequence).astype(int)
 
-    threshold = find_optimal_threshold(p2_act_sequence, measurement_sequence, type1_weight, type2_weight)
+    # threshold = find_optimal_threshold(p2_act_sequence, measurement_sequence, type1_weight, type2_weight)
+    threshold = type1_weight / (type1_weight + type2_weight)
     classifier_predictions = (measurement_sequence > threshold).astype(int)
 
     if finite_measurements:
         measurement_sequence = classifier_predictions
     else:
-        measurement_sequence = np.array([1-measurement_sequence, measurement_sequence]).T
+        if case == 1:
+            measurement_sequence = np.array([1-measurement_sequence, measurement_sequence]).T
+            measurement_set = [0, 1]
+        elif case == 2:
+            measurement_sequence, measurement_set = phi(measurement_sequence)
 
-    measurement_set = [0, 1]
     return measurement_sequence, p2_act_sequence, classifier_predictions, threshold, \
-        len(measurement_sequence), measurement_set
+        max(measurement_sequence.shape), measurement_set
+
+
+def phi(measurement_sequence):
+    thresholds = np.arange(0, 1, 0.1)
+    gamma = 50.
+    threshold_classes = [np.exp(-gamma * np.abs(measurement_sequence - tau)) for tau in thresholds]
+    measurement_sequence = np.vstack(threshold_classes).T
+    measurement_sequence = measurement_sequence / measurement_sequence.sum(axis=1)[..., np.newaxis]
+    measurement_set = [str(np.round(tau, 2)) for tau in thresholds]
+    return measurement_sequence, measurement_set
+
+
+def nonstationary_classifier(n_points, type1_weight, type2_weight, finite_measurements: bool, case: int):
+
+    # create a dataset where the classifier's probability is uniformly sampled on [0, 1]
+    measurement_sequence = np.random.uniform(size=n_points)
+    random_values = np.random.uniform(size=len(measurement_sequence))
+
+    # Sample points according to probs but with a positive bias after the first half
+    e_vec = np.zeros((n_points,))
+    e_vec[-int(n_points/2):] = 1.
+    actual_probs = measurement_sequence - 0.2 #np.random.uniform(low=0., high=0.2, size=n_points)*e_vec
+    actual_probs[actual_probs > 1.] = 1.
+    p2_act_sequence = (random_values < actual_probs).astype(int)
+
+    # threshold = find_optimal_threshold(p2_act_sequence, measurement_sequence, type1_weight, type2_weight)
+    threshold = type1_weight / (type1_weight + type2_weight)
+    classifier_predictions = (measurement_sequence > threshold).astype(int)
+
+    if finite_measurements:
+        measurement_sequence = classifier_predictions
+    else:
+        if case == 1:
+            measurement_sequence = np.array([1-measurement_sequence, measurement_sequence]).T
+            measurement_set = [0, 1]
+        elif case == 2:
+            measurement_sequence, measurement_set = phi(measurement_sequence)
+
+    return measurement_sequence, p2_act_sequence, classifier_predictions, threshold, \
+        max(measurement_sequence.shape), measurement_set
 
 
 if __name__ == '__main__':
@@ -92,117 +136,160 @@ if __name__ == '__main__':
     from src.LearningGames import LearningGame
 
     finite_meas = False
-    M = 100_000
+    meas_case = 1
+    M = 150_000
     m_iter = int(M/10)
     type1 = 1.
-    type2 = 1.
+    type2 = 1.5
     def_rng = np.random.default_rng(11)
-    meas_sequence, p2_act_sequence, classifier_action, classifier_threshold, M, outcomes_set = toy_classifier(M,
-                                                                                             type1_weight=type1,
-                                                                                             type2_weight=type2,
-                                                                                             finite_measurements=finite_meas)
+    kernel_rbf = lambda x, y: np.exp(-30*np.linalg.norm(x - y, 2, axis=-1))
+    kernel_poly = lambda x, y: (x.T@y + .1)**2
+    kernel_list = [None, None, kernel_poly]
+    data = []
+    for case_name, meas_case, kernel in zip(['nominal', 'lifted', 'kernel'], [1, 2, 1], kernel_list):
+        print(meas_case, kernel)
+        meas_sequence, p2_act_sequence, classifier_action, \
+            classifier_threshold, M, outcomes_set = toy_classifier(M,
+                                                                 type1_weight=type1,
+                                                                 type2_weight=type2,
+                                                                 finite_measurements=finite_meas,
+                                                                  case=meas_case)
+        # meas_sequence, p2_act_sequence, classifier_action, \
+        #     classifier_threshold, M, outcomes_set = nonstationary_classifier(M,
+        #                                                                       type1_weight=type1,
+        #                                                                       type2_weight=type2,
+        #                                                                       finite_measurements=finite_meas,
+        #                                                                       case=meas_case)
 
-    print('Measurement set: {}'.format(str(outcomes_set)))
-    game = BinaryClassifierGame(opponent_action_sequence=p2_act_sequence,
-                                measurement_sequence=meas_sequence, measurement_set=outcomes_set,
-                       action_set=[0, 1], type1_weight=type1, type2_weight=type2, finite_measurements=finite_meas)
-    lg = LearningGame(game.action_set, measurement_set=game.measurement_set, finite_measurements=finite_meas,
-                                    decay_rate=0., inverse_temperature=1e-3, seed=0)
+        print('Measurement set: {}'.format(str(outcomes_set)))
+        game = BinaryClassifierGame(opponent_action_sequence=p2_act_sequence,
+                                    measurement_sequence=meas_sequence, measurement_set=outcomes_set,
+                                    action_set=[0, 1], type1_weight=type1,
+                                    type2_weight=type2, finite_measurements=finite_meas)
+        lg = LearningGame(game.action_set, measurement_set=game.measurement_set, finite_measurements=finite_meas,
+                                        decay_rate=0., inverse_temperature=1e-3, seed=0, kernel=kernel)
 
-    lg.reset()
+        lg.reset()
 
-    costs = np.zeros(M)
-    cost_bounds = np.zeros(M)
-    entropy = np.zeros(M)
-    classifier_cost = []
-    p1_action = []
-    tt = 0
-    tt_one = 0
-    for idx in range(M-1):
-        # Play
-        measurement = game.get_measurement()
-        (action, prob, entropy[idx]) = lg.get_action(measurement, idx)
-        (costs[idx], all_costs) = game.play(action)
-        p1_action.append(action)
-        # Learn
-        lg.update_energies(measurement, all_costs, idx)
-        # Store regret
-        (_, _, cost_bounds[idx], _, _, _, _, _) = lg.get_regret(display=False)
-        # Get cost of using classifier
-        classifier_cost.append(game.cost(classifier_action[idx], p2_act_sequence[idx]))
-        # Output
-        if (idx % m_iter == 0) or (idx == M - 1):
-            print("iter={:4d}, action_1 = {:2.0f}, action_2 = {:2.0f}, cost = {:2.0f}, all_costs = {:s}".format(idx,
-                                                                                                            action,
-                                                                                                            p2_act_sequence[idx],
-                                                                                                            costs[idx],
-                                                                                                            str(all_costs)))
-            print('measurement: {}'.format(str(measurement)))
-            # print("previous mal prob: {:.3f} | updated mal prob: {:.3f}".format(prob[1], prob_update[1]))
-            print("energy: {}".format(lg.energy))
-            fig, ax = plt.subplots(2, 1, sharex='col')
-            p = []
-            meas_range = np.arange(0.1, 1.0, step=.01).round(2)
-            pos_res = []
-            bin_counts = []
-            # TODO: generalize the below code. Plot the optimal policy as function of measurements
-            #      Plot the FPR and FNR in ROC?
-            meas_seq_probs = meas_sequence[:, 1].round(2)
-            for measurement_m in meas_range:
-                (_, prob_m, _) = lg.get_action(measurement={0: 1 - measurement_m, 1: measurement_m}, time=idx)
-                p.append(prob_m[1])
-                instance_count = (meas_seq_probs == measurement_m).sum()
-                bin_counts.append(instance_count)
-                pos_res.append(np.sum(p2_act_sequence[meas_seq_probs == measurement_m] == 1) / instance_count)
-            p = np.array(p)
-            pos_res = np.array(pos_res)
+        costs = np.zeros(M)
+        cost_bounds = np.zeros(M)
+        entropy = np.zeros(M)
+        classifier_cost = []
+        p1_action = []
+        tt = 0
+        tt_one = 0
+        for idx in range(M-1):
+            # Play
+            measurement = game.get_measurement()
+            (action, prob, entropy[idx]) = lg.get_action(measurement, idx)
+            (costs[idx], all_costs) = game.play(action)
+            p1_action.append(action)
+            # Learn
+            lg.update_energies(measurement, all_costs, idx)
+            # Store regret
+            (_, _, cost_bounds[idx], _, _, _, _, _) = lg.get_regret(display=False)
+            # Get cost of using classifier
+            classifier_cost.append(game.cost(classifier_action[idx], p2_act_sequence[idx]))
+            # Output
+            if (idx % m_iter == 0) or (idx == M - 1):
+                print("iter={:4d}, action_1 = {:2.0f}, action_2 = {:2.0f},"
+                      " cost = {:2.0f}, all_costs = {:s}".format(idx,
+                                                                action,
+                                                                p2_act_sequence[idx],
+                                                                costs[idx],
+                                                                str(all_costs)))
+                print('measurement: {}'.format(str(measurement)))
+                # print("previous mal prob: {:.3f} | updated mal prob: {:.3f}".format(prob[1], prob_update[1]))
+                print("energy: {}".format(lg.energy))
+                fig, ax = plt.subplots(2, 1, sharex='col')
+                p = []
+                meas_range = np.arange(0.1, 1.0, step=.01).round(2)
+                pos_res = []
+                bin_counts = []
+                # TODO: generalize the below code. Plot the optimal policy as function of measurements
+                #      Plot the FPR and FNR in ROC?
+                meas_seq_probs = meas_sequence[:, 1].round(2)
+                for measurement_m in meas_range:
+                    if meas_case == 2:
+                        meas_arr, meas_set = phi(measurement_m)
+                        meas = {key: val[0] for val, key in zip(meas_arr.T, meas_set)}
+                    else:
+                        meas = {0: 1 - measurement_m, 1: measurement_m}
+                    (_, prob_m, _) = lg.get_action(measurement=meas, time=idx)
+                    p.append(prob_m[1])
+                    instance_count = (meas_seq_probs == measurement_m).sum()
+                    bin_counts.append(instance_count)
+                    pos_res.append(np.sum(p2_act_sequence[meas_seq_probs == measurement_m] == 1) / instance_count)
+                p = np.array(p)
+                pos_res = np.array(pos_res)
 
-            ax[0].plot(meas_range, p, label='Boltzmann')
-            # ax[0].axvline(x=classifier_threshold, c='red', label='classifier threshold')
-            classifier_policy = (meas_range > classifier_threshold).astype(int)
-            ax[0].scatter(meas_range, classifier_policy, c='red', label='classifier policy')
-            ax[0].plot(meas_range, pos_res, label='percent malicious')
-            ax[0].legend()
-            ax[0].set_ylabel('Prob action="mark malicious"')
-            ax[0].set_ylim(0, 1.1)
-            ax[0].set_xlim(0, 1.)
-            ax[1].set_xlabel('Measurement (prob malicious)')
-            ax[0].grid()
-            ax[1].scatter(meas_range, bin_counts)
-            ax[1].set_ylabel('Bin counts')
-            plt.show()
+                ax[0].plot(meas_range, p, label='Boltzmann')
+                # ax[0].axvline(x=classifier_threshold, c='red', label='classifier threshold')
+                classifier_policy = (meas_range > classifier_threshold).astype(int)
+                ax[0].step(meas_range, classifier_policy, c='red', label='classifier policy')
+                # ax[0].plot(meas_range, pos_res, label='empirical % malicious')
+                ax[0].legend()
+                ax[0].set_ylabel('Prob action="mark malicious"')
+                ax[0].set_ylim(0, 1.1)
+                ax[0].set_xlim(0, 1.)
+                ax[1].set_xlabel('Measurement (prob malicious)')
+                ax[0].grid()
+                ax[1].scatter(meas_range, bin_counts)
+                ax[1].set_ylabel('Bin counts')
+                plt.show()
 
-        # print(lg.energy)
-    lg.get_regret(display=True)
+            # print(lg.energy)
+        lg.get_regret(display=True)
 
-    # print('total_cost:', (type1*(np.array(p1_action) > p2_act_sequence).sum() + type2 * (
-    #         np.array(p1_action) < p2_act_sequence).sum()) / M)
-    # print('total_cost_classifier:', (type1 * (np.array(classifier_action) > p2_act_sequence).sum() + type2 * (
-    #             np.array(classifier_action) < p2_act_sequence).sum()) / M)
+        # print('total_cost:', (type1*(np.array(p1_action) > p2_act_sequence).sum() + type2 * (
+        #         np.array(p1_action) < p2_act_sequence).sum()) / M)
+        # print('total_cost_classifier:', (type1 * (np.array(classifier_action) > p2_act_sequence).sum() + type2 * (
+        #             np.array(classifier_action) < p2_act_sequence).sum()) / M)
 
-    iters = range(M)
-    average_costs = np.divide(np.cumsum(costs), range(1, M + 1))
-    average_costs_classifier = np.divide(np.cumsum(classifier_cost), range(1, M))
-    average_cost_bounds = np.divide(np.cumsum(cost_bounds), np.add(range(M), 1))
-    print('Average costs: {} | Average classifier cost: {}'.format(average_costs[-10:].mean(), average_costs_classifier[-100:].mean()))
-    plot_simulation_results(iters, costs, average_costs, [entropy], average_cost_bounds=None, title_prefix="Dataset Game")
+        iters = range(M)
+        average_costs = np.divide(np.cumsum(costs), range(1, M + 1))
+        average_costs_classifier = np.divide(np.cumsum(classifier_cost), range(1, M))
+        average_cost_bounds = np.divide(np.cumsum(cost_bounds), np.add(range(M), 1))
+        print('Average costs: {} | Average classifier cost: {}'.
+              format(average_costs[-10:].mean(), average_costs_classifier[-100:].mean()))
+        plot_simulation_results(iters, costs, average_costs, [entropy], average_cost_bounds=None, title_prefix="Dataset Game")
 
-    def threshold(sample):
-        return (sample > 0.5).astype(int)
+        data.append([meas_range, p, costs, average_costs, average_cost_bounds, case_name])
 
-    def linear(sample, comp):
-        return (comp < sample).astype(int)
+    plt.clf()
+    fig3, ax3 = plt.subplots(2)
+    classifier_policy = (meas_range > classifier_threshold).astype(int)
+    ax3[0].step(meas_range, classifier_policy, c='red', label='classifier policy')
 
+    ax3[1].axhline(y=0.25, label='opt threshold', linestyle='-.', c='g')  # TODO: better not to hardcode this and use optimal cost formula
+    ax3[1].axhline(y=1/3, label='opt linear', linestyle='-.', c='red')
+    iters_scaled = [i/1000 for i in iters]
+    for (meas_range, p, costs, average_costs, average_cost_bounds, case_name) in data:
+        print(case_name)
 
-    n = int(1e7)
-    preds = np.random.uniform(size=n)
-    uni_comp = np.random.uniform(size=n)
-    labels = (uni_comp < preds).astype(int)
-    comp1 = np.random.uniform(size=n)
-    threshold_labels = threshold(preds)
-    linear_labels = linear(preds, comp1)
+        ax3[0].plot(meas_range, p, label=case_name)
+        # ax[0].axvline(x=classifier_threshold, c='red', label='classifier threshold')
 
-    threshold_cost = (((threshold_labels == 1) & (labels == 0)).astype(int) + ((threshold_labels == 0) & (labels == 1)).astype(int)).sum() / n
-    linear_cost = (((linear_labels == 1) & (labels == 0)).astype(int) + ((linear_labels == 0) & (labels == 1)).astype(int)).sum() / n
+        # ax[0].plot(meas_range, pos_res, label='empirical % malicious')
+        ax3[0].legend()
+        ax3[0].set_ylabel('Prob a=1')
+        ax3[0].set_xlabel('Measurement prob l=1')
+        ax3[0].set_ylim(0, 1.1)
+        ax3[0].set_xlim(0, 1.)
 
+        # lines = ax3[1].plot(iters, costs, '.', color='tab:blue')
+        lines = ax3[1].plot(iters_scaled, average_costs, '-', label=case_name)
+        # if average_cost_bounds is not None:
+        #     lines += ax3[1].plot(iters, average_cost_bounds, '-', color='tab:cyan')
+        # for idx, entropy in enumerate(entropies):
+        #     lines += ax_twin.plot(iters, entropy, '.', label='entropy: P{}'.format(idx+1), color='tab:green')
 
+        ax3[1].set_xlabel(r't  ($x10^3$)')
+        ax3[1].set_ylabel('average cost')
+        ax3[1].set_ylim((0.2, .6))
+        ax3[1].legend(bbox_to_anchor=(1., 0.75))
+
+    ax3[0].grid()
+    ax3[1].grid()
+    plt.tight_layout()
+    plt.show()

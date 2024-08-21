@@ -342,5 +342,19 @@ class TestContinuousMeasurementLearningGames(unittest.TestCase):
         self.assertLess(regret, regret_bound)
 
 
+# class TestContinuousMeasurementsBinaryClassifiers(unittest.TestCase):
+#
+#     def test_threeclassifiers_onecorrect_tworandom(self):
+#         M = 10_000
+#         measurement_sequence_1 = np.random.uniform(size=M).round(0)
+#         measurement_sequence_2 = np.random.uniform(size=M)
+#         measurement_sequence_3 = np.random.uniform(size=M)
+#
+#         indep_probs = np.vstack((measurement_sequence_1, measurement_sequence_2, measurement_sequence_3)).T
+#         measurement_sequence = generate_pro
+
+
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

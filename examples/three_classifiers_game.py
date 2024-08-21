@@ -1,8 +1,10 @@
 import itertools
 
 import numpy as np
+from scipy.stats import norm, multivariate_normal
 
 from src.dataset_game import DatasetGame
+from src.utils import generate_probabilities_matrix
 
 
 class ThreeClassifiersGame(DatasetGame):
@@ -41,7 +43,7 @@ class ThreeClassifiersGame(DatasetGame):
         return self.type1_weight*false_pos + self.type2_weight*false_neg
 
 
-def three_classifiers(n_points: int, finite_measurements: bool, case: int):
+def three_classifiers(n_points: int, finite_measurements: bool, case: int, measurement_case: int):
     """
     Generates a dataset based on three classifiers
     Args:
@@ -50,6 +52,7 @@ def three_classifiers(n_points: int, finite_measurements: bool, case: int):
         case: 1: first classifier is always right, the others are random
                 2: first classifier gets the probabilities right, the second flips them, and third is random
                 3: first classifier gets the probabilities right, the second is overconfident, third underconfident
+        measurement_case:
     Returns:
         measurement_sequence (np.array): the sequence of measurements
         p2_act_sequence (np.array): player 2's sequence of actions
@@ -57,26 +60,6 @@ def three_classifiers(n_points: int, finite_measurements: bool, case: int):
         outcomes (list): the set of possible measurements
 
     """
-
-    def generate_probabilities_matrix(prob_matrix):
-        n = prob_matrix.shape[1]  # Number of probabilities in each set
-
-        # Generate all possible outcomes (binary strings of length n)
-        outcomes = np.array(list(itertools.product([0, 1], repeat=n)))
-
-        # Convert the probabilities list to a NumPy array
-        prob_matrix = np.array(prob_matrix)
-
-        # Calculate the probability of each outcome for each set of probabilities
-        outcome_probabilities = []
-        for probs in prob_matrix:
-            # Compute the probabilities for this set
-            probs_matrix = probs * outcomes + (1 - probs) * (1 - outcomes)
-            outcome_probs = np.prod(probs_matrix, axis=1)
-            outcome_probabilities.append(outcome_probs)
-
-        outcomes_strings = ["".join(outcome.astype(str)) for outcome in outcomes]
-        return outcomes_strings, np.array(outcome_probabilities)
 
     if case == 1:
         # first classifier is always right, the others are random
@@ -100,27 +83,52 @@ def three_classifiers(n_points: int, finite_measurements: bool, case: int):
 
     indep_probs = np.vstack((measurement_sequence_1, measurement_sequence_2, measurement_sequence_3)).T
 
-    mcase = 1
-    if mcase == 1:
+    if measurement_case == 1:
+        # take the classifiers to be independent and compute the probability of each outcome
         outcomes, measurement_sequence = generate_probabilities_matrix(indep_probs)
-        outcomes += ['1_1', '1_2', '1_3']
-        measurement_sequence = np.hstack((measurement_sequence, indep_probs))
-        measurement_sequence = measurement_sequence / measurement_sequence.sum(axis=1)[:, np.newaxis]
-        comp = np.linspace(0, 1, 11)
-        for entry in measurement_sequence_1:
-            comp - entry
+        # outcomes += ['1_1', '1_2', '1_3']
+        # measurement_sequence = np.hstack((measurement_sequence, indep_probs))
+        # measurement_sequence = measurement_sequence / measurement_sequence.sum(axis=1)[:, np.newaxis]
 
         if finite_measurements:
             measurement_sequence = np.array([(indep_probs[:, 0] > 0.5).astype(int), (indep_probs[:, 1] > 0.75).astype(int), (indep_probs[:, 2] > 0.95).astype(int)]).T
             measurement_sequence = np.array(["".join(outcome.astype(str)) for outcome in measurement_sequence])
-    elif mcase == 2:
+    elif measurement_case == 2:
+        # the classes are {0,1} for each classifier. Can also use softmax leading to similar results
         measurement_sequence = np.vstack((1-measurement_sequence_1, measurement_sequence_1,
                                           1-measurement_sequence_2, measurement_sequence_2,
                                           1-measurement_sequence_3, measurement_sequence_3)).T
         measurement_sequence = measurement_sequence / measurement_sequence.sum(axis=1)[..., np.newaxis]
         outcomes = ['0_1', '1_1', '0_2', '1_2', '0_3', '1_3']
-    elif mcase == 3:
-        pass
+    elif measurement_case == 3:
+        thresholds = np.arange(0, 1, 0.1)
+        threshold_classes = [(indep_probs.mean(axis=1) > tau).astype(int)*(indep_probs.mean(axis=1) - tau) for tau in thresholds]
+        measurement_sequence = np.vstack(threshold_classes).T
+        measurement_sequence = measurement_sequence / measurement_sequence.sum(axis=1)[..., np.newaxis]
+        outcomes = [str(np.round(tau, 2)) for tau in thresholds]
+    elif measurement_case == 4:
+        u1 = norm.cdf(measurement_sequence_1)
+        u2 = norm.cdf(measurement_sequence_2)
+        u3 = norm.cdf(measurement_sequence_3)
+
+        # Correlation matrix to model dependency (e.g., 0.5 correlation)
+        rho_1_2 = 0.
+        rho_2_3 = 0.
+        rho_1_3 = 0.
+        cov_matrix = [[1., rho_1_2, rho_1_3], [rho_1_2, 1., rho_2_3], [rho_1_3, rho_2_3, 1.]]
+
+        # Gaussian copula
+        joint_probs = multivariate_normal.cdf(np.column_stack([u1, u2, u3]), mean=[0., 0., 0.], cov=cov_matrix)
+
+        # Marginal probabilities
+        marginal_p1 = norm.pdf(measurement_sequence_1)
+        marginal_p2 = norm.pdf(measurement_sequence_2)
+        marginal_p3 = norm.pdf(measurement_sequence_3)
+
+        # Compute joint probability (using Gaussian copula)
+        measurement_sequence_1 = joint_probs * marginal_p1 * marginal_p2 * marginal_p3
+        measurement_sequence = np.vstack((1-measurement_sequence_1, measurement_sequence_1)).T
+        outcomes = ['0', '1']
 
     random_values = np.random.uniform(size=len(measurement_sequence_1))
     p2_act_sequence = (random_values < measurement_sequence_1).astype(int)
@@ -135,24 +143,27 @@ if __name__ == '__main__':
     from src.LearningGames import LearningGame
     from src.utils import plot_simulation_results
 
-    finite_meas = False
+    finite_meas = True
     M = 100_000
     m_iter = int(M/10)
     type1 = 1.
     type2 = 1.
     def_rng = np.random.default_rng(11)
-    case = 3
+    case = 2
+    meas_case = 1
+    kernel = lambda x, y: np.exp(-200 * np.linalg.norm(x - y, 2, axis=-1))
+    kernel = None
 
     meas_sequence, p2_act_sequence, classifier_action, outcomes_set = three_classifiers(M,
                                                                                         finite_measurements=finite_meas,
-                                                                                        case=case)
+                                                                                        case=case, measurement_case=meas_case)
 
     print('Measurement set: {}'.format(str(outcomes_set)))
     game = ThreeClassifiersGame(opponent_action_sequence=p2_act_sequence,
                                 measurement_sequence=meas_sequence, measurement_set=outcomes_set,
                        action_set=[0, 1], type1_weight=type1, type2_weight=type2, finite_measurements=finite_meas)
     lg = LearningGame(game.action_set, measurement_set=game.measurement_set, finite_measurements=finite_meas,
-                                    decay_rate=0., inverse_temperature=1e-2, seed=0)
+                                    decay_rate=0., inverse_temperature=1e-2, seed=0, kernel=kernel)
 
     lg.reset()
 
