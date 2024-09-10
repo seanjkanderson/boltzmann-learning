@@ -3,8 +3,8 @@ import itertools
 import numpy as np
 from scipy.stats import norm, multivariate_normal
 
-from src.dataset_game import DatasetGame
-from src.utils import generate_probabilities_matrix
+from dataset_game import DatasetGame
+from utils import generate_probabilities_matrix
 
 
 class ThreeClassifiersGame(DatasetGame):

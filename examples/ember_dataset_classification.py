@@ -5,6 +5,7 @@ import lightgbm as lgb
 import pickle
 
 from dataset_game import DatasetGame
+from utils import generate_probabilities_matrix
 
 
 class EMBERClassifierGame(DatasetGame):
@@ -60,29 +61,7 @@ def find_optimal_threshold(y_true, y_pred_proba, A, B):
     return best_threshold
 
 
-def generate_probabilities_matrix(prob_matrix):
-    n = prob_matrix.shape[1]  # Number of probabilities in each set
-
-    # Generate all possible outcomes (binary strings of length n)
-    outcomes = np.array(list(itertools.product([0, 1], repeat=n)))
-
-    # Convert the probabilities list to a NumPy array
-    prob_matrix = np.array(prob_matrix)
-
-    # Calculate the probability of each outcome for each set of probabilities
-    outcome_probabilities = []
-    for probs in prob_matrix:
-        # Compute the probabilities for this set
-        probs_matrix = probs * outcomes + (1 - probs) * (1 - outcomes)
-        outcome_probs = np.prod(probs_matrix, axis=1)
-        outcome_probabilities.append(outcome_probs)
-
-    outcomes_strings = ["".join(outcome.astype(str)) for outcome in outcomes]
-    return outcomes_strings, np.array(outcome_probabilities)
-
-
 def ember_classifier(n_train, n_test, n_features, type1_weight, type2_weight):
-
     data = dict(x_train=np.array([]), x_test=np.array([]), y_train=np.array([]), y_test=np.array([]))
     for key, _ in data.items():
         with open('../ember_np/{}.pkl'.format(key), 'rb') as f:
@@ -90,74 +69,150 @@ def ember_classifier(n_train, n_test, n_features, type1_weight, type2_weight):
 
     # only include the labeled points
     labeled = data['y_train'] >= 0.
-    labeled_test = data['y_train'] >= 0.
+    labeled_test = data['y_test'] >= 0.
     x_train = data['x_train'][labeled]
-    x_test = data['x_train'][labeled_test]
+    x_test = data['x_test'][labeled_test]
+    x_total = np.vstack((x_train, x_test))
     y_train = data['y_train'][labeled]
-    y_test = data['y_train'][labeled_test]
+    y_test = data['y_test'][labeled_test]
+    y_total = np.hstack((y_train, y_test)).T
+
+    # x_train, x_scale = normalize_features(x_train)
+    # x_test, _ = normalize_features(x_test, x_scale)
+
+    time_sort = x_total[:, 626].argsort()
+    x_total = x_total[time_sort]
+    y_total = y_total[time_sort]
 
     measurement_sequences = []
-    y_train_sub = y_train[:n_train]
-    y_test_sub = y_train[n_train:n_train+n_test]
+    y_train_sub = y_total[:n_train]
+    y_test_sub = y_total[n_train:n_train + n_test]
+    if len(y_train_sub) < n_train:
+        raise IndexError('Not enough points in training set')
+    if len(y_test_sub) < n_test:
+        raise IndexError('Not enough points in test set')
     train_preds = []
-    for i in range(int(x_train.shape[1]/n_features)+1):
-        x_train_sub = x_train[:n_train, n_features*i:n_features*(i+1)]
-        x_test_sub = x_test[:n_test, n_features*i:n_features*(i+1)]
+    for i in range(int(x_train.shape[1] / n_features) + 1):
+        x_train_sub = x_total[:n_train, n_features * i:n_features * (i + 1)]
+        x_test_sub = x_total[n_train:n_train+n_test, n_features * i:n_features * (i + 1)]
 
         train = lgb.Dataset(x_train_sub, y_train_sub)
-        lgbm_model = lgb.train(dict(num_leaves=31, objective='binary'), train)
+        params = {
+            # "boosting": "gbdt",
+            "objective": "binary",
+            # "num_iterations": 1000,
+            # "learning_rate": 0.05,
+            # "num_leaves": 2048,
+            "num_leaves": 31,
+            # "max_depth": 15,
+            # "min_data_in_leaf": 50,
+            # "feature_fraction": 0.5
+        }
+        lgbm_model = lgb.train(params, train)
 
         train_preds.append(lgbm_model.predict(x_train_sub))
         measurement_sequences.append(lgbm_model.predict(x_test_sub))
 
+    # lgbm_model = lgb.Booster(model_file='../ember_np/ember_model_2018.txt')
+
     p2_act_sequence = y_test_sub
+
+    # feat_importance = np.vstack((np.arange(2381), lgbm_model.feature_importance())).T
+    # feat_importance = feat_importance[feat_importance[:, 1].argsort()]
+    # indep_probs = x_test[:, feat_importance[-3:, 0]]  # TODO: parameterize the number of features
+    # indep_probs /= indep_probs.sum(axis=1)
 
     indep_probs = np.vstack(measurement_sequences).T
     outcomes, measurement_sequence = generate_probabilities_matrix(indep_probs)
-
+    # measurement_sequence, outcomes = phi(indep_probs.mean(axis=1))
     # classify based on a threshold that takes into account type1 and type2 errors
     mean_pred = np.vstack(train_preds).T.mean(axis=1)
     threshold = find_optimal_threshold(y_train_sub, mean_pred, type1_weight, type2_weight)
+    mean_pred_test = np.vstack(measurement_sequences).T.mean(axis=1)
+    threshold = find_optimal_threshold(y_test_sub, mean_pred_test, type1_weight, type2_weight)
     classifier_predictions = (mean_pred > threshold).astype(int)
 
+    test_preds = np.vstack(measurement_sequences).T.mean(axis=1)
+    class_0 = test_preds[p2_act_sequence == 0]
+    class_1 = test_preds[p2_act_sequence == 1]
+    # Plot histograms for each class
+    plt.hist(class_1, bins=1000, alpha=0.5, label='Class 1', color='orange')
+    plt.hist(class_0, bins=1000, alpha=0.8, label='Class 0', color='blue')
+    # Add labels and title
+    plt.xlabel('Classifier Probability')
+    plt.ylabel('Frequency')
+    plt.title('Histogram of Classifier Probabilities by Class')
+    plt.legend(loc='upper center')
+    # Display the plot
+    plt.show()
+
     return measurement_sequence, p2_act_sequence, classifier_predictions, threshold, outcomes
+
+
+def normalize_features(x, x_scale: dict=None):
+    if x_scale is None:
+        x_min = x.min(axis=0)
+        x_range = x.max(axis=0) - x_min
+        x_range[x_range == 0] = 1.
+    else:
+        x_min = x_scale['x_min']
+        x_range = x_scale['x_range']
+
+    x_norm = (x - x_min) / x_range
+    x_norm[x_norm > 1.] = 1.
+    x_norm[x_norm < 0.] = 0.
+    return x_norm, dict(x_min=x_min, x_range=x_range)
+
+
+def phi(measurement_sequence):
+    thresholds = np.arange(0, 1, 0.1)
+    gamma = 50.
+    threshold_classes = [np.exp(-gamma * np.abs(measurement_sequence - tau)) for tau in thresholds]
+    measurement_sequence = np.vstack(threshold_classes).T
+    measurement_sequence = measurement_sequence / measurement_sequence.sum(axis=1)[..., np.newaxis]
+    measurement_set = [str(np.round(tau, 2)) for tau in thresholds]
+    return measurement_sequence, measurement_set
 
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
 
-    from src.LearningGames import LearningGame
-    from src.utils import plot_simulation_results
+    from LearningGames import LearningGame
+    from utils import plot_simulation_results
 
     finite_meas = False
     M = 50_000
-    m_iter = int(M/10)
-    type1 = 1.
-    n_classifiers = 10
+    m_iter = int(M / 10)
+    type1 = 1.5
+    n_classifiers = 1
     type2 = 1.
+    # kernel = lambda x, y: np.exp(-30 * np.linalg.norm(x - y, 2, axis=-1))
+    kernel = None
     def_rng = np.random.default_rng(11)
-    meas_sequence, p2_act_sequence, classifier_action, classifier_threshold, outcomes_set = ember_classifier(n_train=100_000,
-                                                                                               n_features=int(2831/n_classifiers),
-                                                                                                             n_test=M,
-                                                                         type1_weight=1., type2_weight=1.)
+    meas_sequence, p2_act_sequence, classifier_action, \
+        classifier_threshold, outcomes_set = ember_classifier(n_train=100_000,
+                                                              n_features=int(2831 / n_classifiers),
+                                                              n_test=M,
+                                                              type1_weight=1., type2_weight=1.)
 
     print('Measurement set: {}'.format(str(outcomes_set)))
     game = EMBERClassifierGame(opponent_action_sequence=p2_act_sequence,
-                                measurement_sequence=meas_sequence, measurement_set=outcomes_set,
-                       action_set=[0, 1], type1_weight=type1, type2_weight=type2, finite_measurements=finite_meas)
+                               measurement_sequence=meas_sequence, measurement_set=outcomes_set,
+                               action_set=[0, 1], type1_weight=type1, type2_weight=type2,
+                               finite_measurements=finite_meas)
     lg = LearningGame(game.action_set, measurement_set=game.measurement_set, finite_measurements=finite_meas,
-                                    decay_rate=0., inverse_temperature=1e-2, seed=0)
+                      decay_rate=1e-5, inverse_temperature=1e-3, seed=0, kernel=kernel)
 
     lg.reset()
+
+    # svm = StreamingClassifier(window_size=10, classifier=svm_classifier('linear'))
 
     costs = np.zeros(M)
     cost_bounds = np.zeros(M)
     entropy = np.zeros(M)
     classifier_cost = []
     p1_action = []
-    tt = 0
-    tt_one = 0
-    for idx in range(M-1):
+    for idx in range(M - 1):
         # Play
         measurement = game.get_measurement()
         (action, prob, entropy[idx]) = lg.get_action(measurement, idx)
@@ -169,13 +224,17 @@ if __name__ == '__main__':
         (_, _, cost_bounds[idx], _, _, _, _, _) = lg.get_regret(display=False)
         # Get cost of using classifier
         classifier_cost.append(game.cost(classifier_action[idx], p2_act_sequence[idx]))
+        # svm.predict()
+
         # Output
         if (idx % m_iter == 0) or (idx == M - 1):
             print("iter={:4d}, action_1 = {:2.0f}, action_2 = {:2.0f}, cost = {:2.0f}, all_costs = {:s}".format(idx,
-                                                                                                            action,
-                                                                                                            p2_act_sequence[idx],
-                                                                                                            costs[idx],
-                                                                                                            str(all_costs)))
+                                                                                                                action,
+                                                                                                                p2_act_sequence[
+                                                                                                                    idx],
+                                                                                                                costs[
+                                                                                                                    idx],
+                                                                                                                str(all_costs)))
             print('measurement: {}'.format(str(measurement)))
             # print("previous mal prob: {:.3f} | updated mal prob: {:.3f}".format(prob[1], prob_update[1]))
             print("energy: {}".format(lg.energy))
@@ -188,7 +247,7 @@ if __name__ == '__main__':
             # #      Plot the FPR and FNR in ROC?
             # meas_seq_probs = meas_sequence[:, 1].round(2)
             # for measurement_m in meas_range:
-            #     (_, prob_m, _) = lg.get_action(measurement={0: 1 - measurement_m, 1: measurement_m}, time=idx)
+            #     (_, prob_m, _) = lg.get_action(measurement={'0': 1 - measurement_m, '1': measurement_m}, time=idx)
             #     p.append(prob_m[1])
             #     instance_count = (meas_seq_probs == measurement_m).sum()
             #     bin_counts.append(instance_count)
@@ -223,8 +282,10 @@ if __name__ == '__main__':
     average_costs = np.divide(np.cumsum(costs), range(1, M + 1))
     average_costs_classifier = np.divide(np.cumsum(classifier_cost), range(1, M))
     average_cost_bounds = np.divide(np.cumsum(cost_bounds), np.add(range(M), 1))
-    print('Average costs: {} | Average classifier cost: {}'.format(average_costs[-10:].mean(), average_costs_classifier[-100:].mean()))
-    plot_simulation_results(iters, costs, average_costs, [entropy], average_cost_bounds=None, title_prefix="Dataset Game")
+    print('Average costs: {} | Average classifier cost: {}'.format(average_costs[-10:].mean(),
+                                                                   average_costs_classifier[-100:].mean()))
+    plot_simulation_results(iters, costs, average_costs, [entropy], average_cost_bounds=None,
+                            title_prefix="Dataset Game")
 
     keys = []
     probs = []

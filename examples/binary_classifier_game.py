@@ -74,6 +74,8 @@ def toy_classifier(n_points, type1_weight, type2_weight, finite_measurements: bo
 
     # threshold = find_optimal_threshold(p2_act_sequence, measurement_sequence, type1_weight, type2_weight)
     threshold = type1_weight / (type1_weight + type2_weight)
+    threshold_info = dict(threshold=threshold,
+                          cost=type1_weight/2 - type1_weight*threshold + threshold**2/2*(type1_weight + type2_weight))
     classifier_predictions = (measurement_sequence > threshold).astype(int)
 
     if finite_measurements:
@@ -85,7 +87,7 @@ def toy_classifier(n_points, type1_weight, type2_weight, finite_measurements: bo
         elif case == 2:
             measurement_sequence, measurement_set = phi(measurement_sequence)
 
-    return measurement_sequence, p2_act_sequence, classifier_predictions, threshold, \
+    return measurement_sequence, p2_act_sequence, classifier_predictions, threshold_info, \
         max(measurement_sequence.shape), measurement_set
 
 
@@ -108,12 +110,15 @@ def nonstationary_classifier(n_points, type1_weight, type2_weight, finite_measur
     # Sample points according to probs but with a positive bias after the first half
     e_vec = np.zeros((n_points,))
     e_vec[-int(n_points/2):] = 1.
-    actual_probs = measurement_sequence - 0.2 #np.random.uniform(low=0., high=0.2, size=n_points)*e_vec
+    actual_probs = measurement_sequence - np.random.uniform(low=0., high=0.2, size=n_points)*e_vec
     actual_probs[actual_probs > 1.] = 1.
     p2_act_sequence = (random_values < actual_probs).astype(int)
 
     # threshold = find_optimal_threshold(p2_act_sequence, measurement_sequence, type1_weight, type2_weight)
     threshold = type1_weight / (type1_weight + type2_weight)
+    threshold_info = dict(threshold=threshold,
+                          cost=type1_weight / 2 - type1_weight * threshold + threshold ** 2 / 2 * (
+                                      type1_weight + type2_weight))
     classifier_predictions = (measurement_sequence > threshold).astype(int)
 
     if finite_measurements:
@@ -125,7 +130,7 @@ def nonstationary_classifier(n_points, type1_weight, type2_weight, finite_measur
         elif case == 2:
             measurement_sequence, measurement_set = phi(measurement_sequence)
 
-    return measurement_sequence, p2_act_sequence, classifier_predictions, threshold, \
+    return measurement_sequence, p2_act_sequence, classifier_predictions, threshold_info, \
         max(measurement_sequence.shape), measurement_set
 
 
@@ -144,22 +149,22 @@ if __name__ == '__main__':
     def_rng = np.random.default_rng(11)
     kernel_rbf = lambda x, y: np.exp(-30*np.linalg.norm(x - y, 2, axis=-1))
     kernel_poly = lambda x, y: (x.T@y + .1)**2
-    kernel_list = [None, None, kernel_poly]
+    kernel_list = [None, None, kernel_rbf]
     data = []
-    for case_name, meas_case, kernel in zip(['nominal', 'lifted', 'kernel'], [1, 2, 1], kernel_list):
+    for case_name, meas_case, beta, kernel in zip(['nominal', 'lifted', 'kernel'], [1, 2, 1], [1e-4, 1e-3, 1e-4], kernel_list):
         print(meas_case, kernel)
-        meas_sequence, p2_act_sequence, classifier_action, \
-            classifier_threshold, M, outcomes_set = toy_classifier(M,
-                                                                 type1_weight=type1,
-                                                                 type2_weight=type2,
-                                                                 finite_measurements=finite_meas,
-                                                                  case=meas_case)
         # meas_sequence, p2_act_sequence, classifier_action, \
-        #     classifier_threshold, M, outcomes_set = nonstationary_classifier(M,
-        #                                                                       type1_weight=type1,
-        #                                                                       type2_weight=type2,
-        #                                                                       finite_measurements=finite_meas,
-        #                                                                       case=meas_case)
+        #     threshold_info, M, outcomes_set = toy_classifier(M,
+        #                                                          type1_weight=type1,
+        #                                                          type2_weight=type2,
+        #                                                          finite_measurements=finite_meas,
+        #                                                           case=meas_case)
+        meas_sequence, p2_act_sequence, classifier_action, \
+            threshold_info, M, outcomes_set = nonstationary_classifier(M,
+                                                                              type1_weight=type1,
+                                                                              type2_weight=type2,
+                                                                              finite_measurements=finite_meas,
+                                                                              case=meas_case)
 
         print('Measurement set: {}'.format(str(outcomes_set)))
         game = BinaryClassifierGame(opponent_action_sequence=p2_act_sequence,
@@ -167,7 +172,7 @@ if __name__ == '__main__':
                                     action_set=[0, 1], type1_weight=type1,
                                     type2_weight=type2, finite_measurements=finite_meas)
         lg = LearningGame(game.action_set, measurement_set=game.measurement_set, finite_measurements=finite_meas,
-                                        decay_rate=0., inverse_temperature=1e-3, seed=0, kernel=kernel)
+                                        decay_rate=1e-6, inverse_temperature=beta, seed=0, kernel=kernel)
 
         lg.reset()
 
@@ -225,7 +230,7 @@ if __name__ == '__main__':
 
                 ax[0].plot(meas_range, p, label='Boltzmann')
                 # ax[0].axvline(x=classifier_threshold, c='red', label='classifier threshold')
-                classifier_policy = (meas_range > classifier_threshold).astype(int)
+                classifier_policy = (meas_range > threshold_info['threshold']).astype(int)
                 ax[0].step(meas_range, classifier_policy, c='red', label='classifier policy')
                 # ax[0].plot(meas_range, pos_res, label='empirical % malicious')
                 ax[0].legend()
@@ -258,11 +263,11 @@ if __name__ == '__main__':
 
     plt.clf()
     fig3, ax3 = plt.subplots(2)
-    classifier_policy = (meas_range > classifier_threshold).astype(int)
+    classifier_policy = (meas_range > threshold_info['threshold']).astype(int)
     ax3[0].step(meas_range, classifier_policy, c='red', label='classifier policy')
 
-    ax3[1].axhline(y=0.25, label='opt threshold', linestyle='-.', c='g')  # TODO: better not to hardcode this and use optimal cost formula
-    ax3[1].axhline(y=1/3, label='opt linear', linestyle='-.', c='red')
+    ax3[1].axhline(y=threshold_info['cost'], label='opt threshold', linestyle='-.', c='g')
+    # ax3[1].axhline(y=1/3, label='opt linear', linestyle='-.', c='red') # TODO: better not to hardcode this and use optimal cost formula
     iters_scaled = [i/1000 for i in iters]
     for (meas_range, p, costs, average_costs, average_cost_bounds, case_name) in data:
         print(case_name)
@@ -286,7 +291,7 @@ if __name__ == '__main__':
 
         ax3[1].set_xlabel(r't  ($x10^3$)')
         ax3[1].set_ylabel('average cost')
-        ax3[1].set_ylim((0.2, .6))
+        ax3[1].set_ylim((threshold_info['cost']*.95, .6))
         ax3[1].legend(bbox_to_anchor=(1., 0.75))
 
     ax3[0].grid()
