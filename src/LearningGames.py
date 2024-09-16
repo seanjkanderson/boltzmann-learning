@@ -8,6 +8,7 @@ Created on Fri Dec 1 17:57 2024
 
 import numpy as np
 import scipy.stats as sci_stats
+import math
 
 from typing import NewType, Any, Callable
 from collections import OrderedDict
@@ -53,7 +54,7 @@ class LearningGame:
         inverse_temperature: float = 0.01,
         seed: int = None,
         kernel: Callable[[np.array, np.array], np.float64] = None,
-        time_bound: float = None
+        time_bound: float = 0.0
     ):
         """Constructor for LearningGame class
 
@@ -76,7 +77,7 @@ class LearningGame:
             seed (int, optional): seed for action random number generator.
                 When None, a nondeterministic seed will be generated.
                 Defaults to None.
-            time_bound (float, optional): referred to as \mu_0 in the paper,
+            time_bound (float): referred to as \mu_0 in the paper, # TODO: what should default be?
                 this is the short term bound on the time gap between samples
         """
 
@@ -113,6 +114,8 @@ class LearningGame:
         """kernel (Callable[[np.array, np.array], np.float]): Applies kernel trick for computing probabilities"""
 
         self.time_bound = time_bound
+        """time_bound (float): referred to as \mu_0 in the paper,
+                this is the short term bound on the time gap between samples"""
 
         self.reset()
 
@@ -138,6 +141,9 @@ class LearningGame:
         ## initialize variables needed to compute regret
         self.total_cost = 0.0
         """total_cost (float): total cost incurred so far; used to compute regret"""
+
+        self.measurement_cost = 0.0
+        """measurement_cost (float): the cost associated with the observed sequence of measurements"""
 
         self.normalization_sum = 0
         """normalization_sum (float): sum used to normalize "average cost". Given by
@@ -268,6 +274,9 @@ class LearningGame:
         # TODO: verify the entire rhs should not be weighted by decay
         self.total_cost = decay * self.total_cost + average_cost
 
+        # for action in self._action_set:
+        self.measurement_cost = 0.#decay * self.measurement_cost + costs[0]
+
         for m in self._measurement_set:
 
             if self.finite_measurements:
@@ -300,7 +309,7 @@ class LearningGame:
             for a in self._action_set:
                 self.energy[m][a] = decay * (self.energy[m][a] + costs[a] * weight)
 
-        ## Update normalization_sum, which is given by
+                ## Update normalization_sum, which is given by
         #     W[time_k]=\sum_{l=1}^k  exp(-lambda(time_k-time_l))
         #              = 1 + \sum_{l=1}^{k-1}  exp(-lambda(time_k-time_l))
         #              = 1 + exp(-lambda(time_k-time_{k-1}))\sum_{l=1}^{k-1}  exp(-lambda(time_{k-1}-time_l))
@@ -334,10 +343,14 @@ class LearningGame:
                 alpha0 (float): additive factor for theoretical bound
 
         """
-        
+
+        # decay (depends on t_{k+1} but can be bounded by time_bound)
+        inverse_decay = np.exp(self.decay_rate * self.time_bound)
+
         ## compute average cost
         if self.normalization_sum > 0:
-            average_cost = self.total_cost / self.normalization_sum
+            # multiply by inverse_decay in order to get back to paper (13)
+            average_cost = inverse_decay * self.total_cost / self.normalization_sum
         else:
             average_cost = 0.0
 
@@ -347,13 +360,23 @@ class LearningGame:
             mn = np.inf
             for a in self._action_set:
                 if self.energy[m][a] < mn:
-                    mn = self.energy[m][a]
+                    # need to multiply by inverse_decay to get back to (13)
+                    mn = inverse_decay * self.energy[m][a]
             minimum_cost += mn
+
+        # TODO: clarify this with Joao - why isnt the above an average over only actions for a particular measurement
+        if self.finite_measurements:
+            average_factor = 1 / len(self._action_set)
+        else:
+            average_factor = 1 / math.factorial(len(self._action_set))
+            average_factor = 1.
+        minimum_cost_new = average_factor * self.measurement_cost / self.normalization_sum
 
         if self.normalization_sum > 0:
             minimum_cost /= self.normalization_sum
 
         regret = average_cost - minimum_cost
+        regret = average_cost - minimum_cost_new
         ## compute bounds
         J0 = self.min_cost  # TODO: there may be a better choice
         J0 = (self.min_cost + self.max_cost) / 2  # TODO: there may be a better choice
@@ -361,29 +384,42 @@ class LearningGame:
             np.exp(self.inverse_temperature * (J0 - self.min_cost))
             - np.exp(self.inverse_temperature * (J0 - self.max_cost))
         ) / (self.inverse_temperature * (self.max_cost - self.min_cost))
-        # delta = (1 - np.exp(-self.inverse_temperature * (self.max_cost - self.min_cost))) / (
-        #             self.inverse_temperature * (self.max_cost - self.min_cost))
+        delta_ = (1 - np.exp(-self.inverse_temperature * (self.max_cost - self.min_cost))) / (
+                    self.inverse_temperature * (self.max_cost - self.min_cost))
         delta0 = (
             (np.exp(self.inverse_temperature * (J0 - self.min_cost)) - 1)
             / self.inverse_temperature
             - J0
             + delta * self.min_cost
         )
+        delta0_ = -(1 - delta)*self.min_cost
         alpha1 = 1 / delta
+        alpha1_ = 1 / delta_
 
         if self.finite_measurements:
             cardinality_term = len(self._measurement_set)
         else:
             cardinality_term = min(len(self._measurement_set), len(self._action_set))
         alpha0 = (
-            cardinality_term
+            cardinality_term * inverse_decay
             * np.log(len(self._action_set))
             / self.inverse_temperature
             / self.normalization_sum
         ) + delta0
+        alpha0_ = (
+            cardinality_term
+            * np.log(len(self._action_set))
+            / self.inverse_temperature
+            / self.normalization_sum
+        ) + delta0_
 
         cost_bound = alpha1 * (minimum_cost + alpha0)
-        regret_bound = cost_bound - minimum_cost
+        regret_bound_old = cost_bound - minimum_cost
+        cost_bound_old = cost_bound
+        cost_bound = alpha1_ * (minimum_cost_new + alpha0_)
+        regret_bound = cost_bound - minimum_cost_new
+
+        # print(cost_bound_old, cost_bound, regret_bound_old, regret_bound)
 
         if DEBUG:
             """print(

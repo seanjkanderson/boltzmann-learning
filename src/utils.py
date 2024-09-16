@@ -162,7 +162,7 @@ class GamePlay:
         self.binary_cont_measurement = binary_cont_measurement
 
     def play_games(self) -> dict[dict]:
-        """ Play all of the games
+        """ Play all the games
         Returns: dictionary of all game outcomes, which are dictionaries of relevant statistics
 
         """

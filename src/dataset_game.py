@@ -1,5 +1,6 @@
 from collections import OrderedDict
 from abc import ABCMeta, abstractmethod
+from typing import Union
 
 
 class DatasetGame(metaclass=ABCMeta):
@@ -51,7 +52,7 @@ class DatasetGame(metaclass=ABCMeta):
         """
         return self.measurement
 
-    def play(self, p1_action) -> tuple[float, OrderedDict[int, float]]:
+    def play(self, p1_action) -> tuple[float, OrderedDict[int, float], Union[str, float]]:
         """Play game
 
         Args:
@@ -61,6 +62,7 @@ class DatasetGame(metaclass=ABCMeta):
             tuple[float,dict(str,float)]
             cost (float): -1 if player 1 wins, +1 if player 1 loses, 0 draw
             all_costs (dict[str,float]): dictionary with costs for all actions of player 1
+            p2_action
         """
         if self.counter >= len(self.opponent_action_sequence) or self.counter + 1 >= len(self.measurement_sequence):
             raise ValueError('player 2 ran out of actions or there are no more measurements')
@@ -79,4 +81,4 @@ class DatasetGame(metaclass=ABCMeta):
         # costs for all actions of player 1
         all_costs = OrderedDict([(a, self.cost(a, p2_action)) for a in self.action_set])
 
-        return cost, all_costs
+        return cost, all_costs, p2_action

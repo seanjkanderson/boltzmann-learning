@@ -5,9 +5,11 @@ from decision_maker import DecisionMaker
 
 
 class SVMRegressor(DecisionMaker):
-
-    def __init__(self, window_size: int, kernel: str, measurement_set, action_set):
+    # TODO: combine with StreamingLSTM as child classes?
+    def __init__(self, window_size: int, kernel: str, measurement_set, action_set, finite_measurement):
         self.window_size = window_size * len(action_set)
+        self.measurement_set = measurement_set
+        self.finite_measurement = finite_measurement
         self.inputs = []
         self.outputs = []
 
@@ -27,16 +29,26 @@ class SVMRegressor(DecisionMaker):
             encoding_map[meas] = one_hot[idx]
         return encoding_map
 
+    def measurement_to_embedding(self, measurement, action):
+        one_hot_action = self.action_encoding_map[action]
+        if not self.finite_measurement:
+            embedding = np.array([measurement[k] for k in self.measurement_set])
+        else:
+            embedding = self.encoding_map[measurement]
+        return np.hstack((embedding, one_hot_action))
+
     def get_action(self, measurement, time: float = 0.0, **kwargs):
-        one_hot_measurement = self.encoding_map[measurement]
+        # one_hot_measurement = self.encoding_map[measurement]
         if self.model_degenerate:
             return 0, None, None
         else:
             min_cost = 1e10
             best_action = ''
             for action in self.action_set:
-                one_hot_action = self.action_encoding_map[action]
-                input = np.hstack((one_hot_measurement, one_hot_action)).reshape(1, -1)
+                # one_hot_action = self.action_encoding_map[action]
+                embedding = self.measurement_to_embedding(measurement, action)
+                # self.inputs.append(embedding)
+                input = np.hstack(embedding).reshape(1, -1)
                 predicted_cost = self.model.predict(input)[0]
                 if predicted_cost < min_cost:
                     min_cost = predicted_cost
@@ -45,15 +57,15 @@ class SVMRegressor(DecisionMaker):
 
     def update_energies(self, measurement, costs: dict, time: float = 0.0, **kwargs):
         for action, cost in costs.items():
-            one_hot_action = self.action_encoding_map[action]
-            self.inputs.append(np.hstack((self.encoding_map[measurement], one_hot_action)))
+            embedding = self.measurement_to_embedding(measurement, action)
+            self.inputs.append(embedding)
             self.outputs.append(cost)
         self.inputs = self.inputs[-self.window_size:]
         self.outputs = self.outputs[-self.window_size:]
-        try:
+        try:  #TODO: should only update peridoically for computational tractability
             self.model.fit(np.array(self.inputs), np.array(self.outputs))
             self.model_degenerate = False
-        except:
+        except:  # TODO: should only allow Exception for when data is insufficient
             print('model is degenerate with {} samples'.format(len(self.outputs)))
             self.model_degenerate = True
 
