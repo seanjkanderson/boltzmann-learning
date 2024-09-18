@@ -4,17 +4,26 @@ import numpy as np
 from decision_maker import DecisionMaker
 
 
-class SVMRegressor(DecisionMaker):
+class MLModel(DecisionMaker):
     # TODO: combine with StreamingLSTM as child classes?
-    def __init__(self, window_size: int, kernel: str, measurement_set, action_set, finite_measurement):
+    def __init__(self, window_size: int, kernel: str, measurement_set, action_set, finite_measurement,
+                 update_frequency: int = 1, raw_measurement: bool = False, measurement_to_label: bool = False,
+                 policy_map: dict = None):
         self.window_size = window_size * len(action_set)
         self.measurement_set = measurement_set
         self.finite_measurement = finite_measurement
+        self.update_frequency = update_frequency
+        self.raw_measurement = raw_measurement
+        self.measurement_to_label = measurement_to_label
+        self.policy_map = policy_map
+        if self.measurement_to_label:
+            if self.policy_map is None:
+                raise ValueError('Mapping from measurement to label requires a policy map to map labels to actions.')
         self.inputs = []
         self.outputs = []
 
         # map the measurement set to a one-hot encoding
-        self.model = svm.SVR(kernel=kernel)
+        self.model = svm.SVC(kernel=kernel)
         self.model_degenerate = True
         self.encoding_map = self.one_hot_encoding(measurement_set)
         self.action_set = action_set
@@ -29,48 +38,66 @@ class SVMRegressor(DecisionMaker):
             encoding_map[meas] = one_hot[idx]
         return encoding_map
 
-    def measurement_to_embedding(self, measurement, action):
-        one_hot_action = self.action_encoding_map[action]
-        if not self.finite_measurement:
-            embedding = np.array([measurement[k] for k in self.measurement_set])
+    def measurement_to_embedding(self, measurement, action=None):
+        if self.raw_measurement:
+            embedding = measurement
         else:
-            embedding = self.encoding_map[measurement]
-        return np.hstack((embedding, one_hot_action))
+            if not self.finite_measurement:
+                embedding = np.array([measurement[k] for k in self.measurement_set])
+            else:
+                embedding = self.encoding_map[measurement]
+
+        if self.measurement_to_label:
+            return embedding
+        else:
+            one_hot_action = self.action_encoding_map[action]
+            return np.hstack((embedding, one_hot_action))
 
     def get_action(self, measurement, time: float = 0.0, **kwargs):
-        # one_hot_measurement = self.encoding_map[measurement]
         if self.model_degenerate:
             return 0, None, None
         else:
             min_cost = 1e10
             best_action = ''
-            for action in self.action_set:
-                # one_hot_action = self.action_encoding_map[action]
-                embedding = self.measurement_to_embedding(measurement, action)
-                # self.inputs.append(embedding)
+            if self.measurement_to_label:
+                embedding = self.measurement_to_embedding(kwargs['raw_measurement'])
                 input = np.hstack(embedding).reshape(1, -1)
-                predicted_cost = self.model.predict(input)[0]
-                if predicted_cost < min_cost:
-                    min_cost = predicted_cost
-                    best_action = action
+                predicted_label = self.model.predict(input)[0]
+                best_action = self.policy_map[predicted_label]
+            else:
+                for action in self.action_set:
+                    embedding = self.measurement_to_embedding(measurement, action)
+                    input = np.hstack(embedding).reshape(1, -1)
+                    predicted_cost = self.model.predict(input)[0]
+                    if predicted_cost < min_cost:
+                        min_cost = predicted_cost
+                        best_action = action
             return best_action, None, None
 
     def update_energies(self, measurement, costs: dict, time: float = 0.0, **kwargs):
-        for action, cost in costs.items():
-            embedding = self.measurement_to_embedding(measurement, action)
+        if self.measurement_to_label:
+            embedding = self.measurement_to_embedding(kwargs['raw_measurement'])
             self.inputs.append(embedding)
-            self.outputs.append(cost)
+            self.outputs.append(kwargs['opponent_action'])
+        else:
+            for action, cost in costs.items():
+                embedding = self.measurement_to_embedding(measurement, action)
+                self.inputs.append(embedding)
+                self.outputs.append(cost)
+
         self.inputs = self.inputs[-self.window_size:]
         self.outputs = self.outputs[-self.window_size:]
-        try:  #TODO: should only update peridoically for computational tractability
-            self.model.fit(np.array(self.inputs), np.array(self.outputs))
-            self.model_degenerate = False
-        except:  # TODO: should only allow Exception for when data is insufficient
-            print('model is degenerate with {} samples'.format(len(self.outputs)))
-            self.model_degenerate = True
+
+        if time % self.update_frequency == 0:
+            try:
+                self.model.fit(np.array(self.inputs), np.array(self.outputs))
+                self.model_degenerate = False
+            except ValueError as e:  # TODO: should only allow Exception for when data is insufficient
+                print('model is degenerate with {} samples | {}'.format(len(self.outputs), e))
+                self.model_degenerate = True
 
 
-class MultiArmBandit:
+class MultiArmBandit(DecisionMaker):
 
     def __init__(self, action_set, method: str, method_args: dict):
         self.action_set = action_set
@@ -83,9 +110,9 @@ class MultiArmBandit:
             self.arm_selector = self.epsilon_greedy
         self.method_args = method_args
 
-    def get_action(self, t, measurement):
+    def get_action(self,  measurement, time: float = 0.0, **kwargs):
         # TODO: should be able to compute regret from distribution of actions
-        action_idx = self.arm_selector(t=t, measurement=measurement)
+        action_idx = self.arm_selector(t=time, measurement=measurement)
         return self.action_set[action_idx], None, None
 
     def update_energies(self, action, action_cost, **kwargs):

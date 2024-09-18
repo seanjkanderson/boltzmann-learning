@@ -6,7 +6,7 @@ from typing import Union
 class DatasetGame(metaclass=ABCMeta):
 
     def __init__(self, action_set: list, measurement_set: list, opponent_action_sequence,
-                 measurement_sequence, finite_measurements: bool):
+                 measurement_sequence, finite_measurements: bool, raw_measurements=None):
         """Create game
 
         Args:
@@ -17,10 +17,12 @@ class DatasetGame(metaclass=ABCMeta):
             measurement_sequence (Array-like): sequence of measurements. For the finite measurement case, this will be a
                 vector. For the infinite measurement case, this will be an array with columns matching the order of
                 measurement_set
-
+            raw_measurements (Array-like, Optional): a measurement sequence containing less-processed "features" than
+                measurement_sequence.
         """
         self.opponent_action_sequence = opponent_action_sequence.squeeze()
         self.measurement_sequence = measurement_sequence.squeeze()
+        self.raw_measurements = raw_measurements.squeeze()
         self.counter = 0
         self.action_set = action_set
         self.measurement_set = measurement_set
@@ -31,6 +33,7 @@ class DatasetGame(metaclass=ABCMeta):
         else:
             self.measurement = {k: 0. for k in measurement_set}
             self.measurement[measurement_set[0]] = 1.  # the measurements must sum to 1.
+        self.raw_measurement = raw_measurements[0]
 
     @abstractmethod
     def cost(self, p1_action, p2_action) -> float:
@@ -50,7 +53,7 @@ class DatasetGame(metaclass=ABCMeta):
         Returns:
             measurement: measurement for next move
         """
-        return self.measurement
+        return self.measurement, self.raw_measurement
 
     def play(self, p1_action) -> tuple[float, OrderedDict[int, float], Union[str, float]]:
         """Play game
@@ -72,6 +75,7 @@ class DatasetGame(metaclass=ABCMeta):
         # update measurement (i.e. read topic for measurements)
         self.counter += 1
         all_measurements = self.measurement_sequence[self.counter]
+        self.raw_measurement = self.raw_measurements[self.counter]
         if self.finite_measurements:
             self.measurement = all_measurements
         else:

@@ -224,7 +224,7 @@ class LearningGame:
         return probabilities, entropy
 
     def get_action(
-        self, measurement: Measurement, time: float = 0.0
+        self, measurement: Measurement, time: float = 0.0, **kwargs
     ) -> tuple[Action, np.array, float]:
         """Gets (optimal) action for a given measurement
 

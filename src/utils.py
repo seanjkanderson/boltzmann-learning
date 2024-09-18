@@ -58,10 +58,11 @@ def plot_simulation_results(iters, costs, average_costs, entropies, average_cost
     plt.show()
 
 
-def plot_comparison(iters, methods: list, costs: list, average_costs: list, entropies: list, average_cost_bounds=None, title_prefix=""):
+def plot_comparison(iters, methods: list, costs: list, average_costs: list, entropies: list,
+                    average_cost_bounds=None, title_prefix="", ax=None):
     """
     Plots the simulation results including costs, average costs, entropy, and average cost bounds.
-
+    # TODO: clean up this doc
     Parameters:
     - iters: List or array of iteration indices.
     - methods: the method names for the legend labels
@@ -70,17 +71,20 @@ def plot_comparison(iters, methods: list, costs: list, average_costs: list, entr
     - entropies: List of players' array of entropy values at each iteration.
     - average_cost_bounds: (Optional) List of arrays of average cost bounds up to each iteration.
     - title_prefix: (Optional) Prefix string for plot titles.
+    - ax (Optional): the axis on which to plot
     """
 
     if average_cost_bounds is None:
-        average_cost_bounds = [None, None, None]
+        average_cost_bounds = [None for _ in average_costs]
 
-    fig, ax = plt.subplots(1, 1, figsize=(10, 7))
+    if ax is None:
+        fig, ax = plt.subplots(1, 1, figsize=(10, 7))
 
     # Plot costs, average cost, and entropy, from start
     for label, cost, average_cost, average_cost_bound in zip(methods, costs, average_costs, average_cost_bounds):
-        lines = ax.plot(iters, cost, '.', label='cost | {}'.format(label))
-        lines += ax.plot(iters, average_cost, '-', label='average cost | {}'.format(label))
+        print(label)
+        # lines = ax.plot(iters, cost, '.', label='cost | {}'.format(label))
+        lines = ax.plot(iters, average_cost, '-', label='average cost | {}'.format(label))
         if average_cost_bound is not None:
             lines += ax.plot(iters, average_cost_bound, '-', label='average cost bound | {}'.format(label))
         # for idx, entropy in enumerate(entropies):
@@ -106,9 +110,9 @@ def plot_comparison(iters, methods: list, costs: list, average_costs: list, entr
         # ax_twin.set_ylabel('entropy')
         # ax[1].set_title(f"{title_prefix} Costs, Average Costs, and Entropy (End)")
         # ax_twin.legend(lines, [line.get_label() for line in lines])
-
+    ax.scatter(range(len(entropies[0])), entropies[0], label='LearningGame entropy', s=1)
     ax.legend()
-    fig.tight_layout()
+    # fig.tight_layout()
     plt.show()
 
 
@@ -182,12 +186,14 @@ class GamePlay:
 
         for idx in range(self.horizon - 1):
             # Play
-            measurement = game.get_measurement()
-            action, prob, entropy[idx] = decision_maker.get_action(measurement, idx)
+            measurement, raw_measurement = game.get_measurement()
+            action, prob, entropy[idx] = decision_maker.get_action(measurement=measurement, time=idx,
+                                                                   raw_measurement=raw_measurement)
             costs[idx], all_costs, opponent_action = game.play(action)
             p1_action.append(action)
             # Learn
             decision_maker.update_energies(measurement=measurement, costs=all_costs, action=action,
+                                           raw_measurement=raw_measurement,
                                            time=idx, action_cost=costs[idx], opponent_action=opponent_action)
             # Store regret
             try:
@@ -221,7 +227,7 @@ class GamePlay:
         return dict(iters=iters, costs=costs, average_costs=average_costs, entropy=entropy)
 
     @staticmethod
-    def plot_game_outcome(outcomes):
+    def plot_game_outcome(outcomes, title='', ax=None):
 
         methods = []
         costs = []
@@ -238,7 +244,7 @@ class GamePlay:
                         average_costs=average_costs,
                         entropies=entropies,
                         average_cost_bounds=None,
-                        title_prefix="MAB | Bad RNG")
+                        title_prefix=title, ax=ax)
 
 
 def plot_binary_policy(decision_maker, game, time_idx):
