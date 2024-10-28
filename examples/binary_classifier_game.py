@@ -92,7 +92,7 @@ def toy_classifier(n_points, type1_weight, type2_weight, finite_measurements: bo
 
 
 def phi(measurement_sequence):
-    thresholds = np.arange(0, 1, 0.1)
+    thresholds = np.arange(0, 1, 0.05)
     gamma = 50.
     threshold_classes = [np.exp(-gamma * np.abs(measurement_sequence - tau)) for tau in thresholds]
     measurement_sequence = np.vstack(threshold_classes).T
@@ -110,7 +110,7 @@ def nonstationary_classifier(n_points, type1_weight, type2_weight, finite_measur
     # Sample points according to probs but with a positive bias after the first half
     e_vec = np.zeros((n_points,))
     e_vec[-int(n_points/2):] = 1.
-    actual_probs = measurement_sequence - np.random.uniform(low=0., high=0.2, size=n_points)*e_vec
+    actual_probs = measurement_sequence - e_vec*0.2 # np.random.uniform(low=0., high=0.3, size=n_points)*e_vec
     actual_probs[actual_probs > 1.] = 1.
     p2_act_sequence = (random_values < actual_probs).astype(int)
 
@@ -149,9 +149,11 @@ if __name__ == '__main__':
     def_rng = np.random.default_rng(11)
     kernel_rbf = lambda x, y: np.exp(-30*np.linalg.norm(x - y, 2, axis=-1))
     kernel_poly = lambda x, y: (x.T@y + .1)**2
-    kernel_list = [None, None, kernel_rbf]
+    # kernel_list = [None, None, kernel_rbf]
+    kernel_list = [None]
     data = []
-    for case_name, meas_case, beta, kernel in zip(['nominal', 'lifted', 'kernel'], [1, 2, 1], [1e-4, 1e-3, 1e-4], kernel_list):
+    # for case_name, meas_case, beta, kernel in zip(['nominal', 'lifted', 'kernel'], [1, 2, 1], [1e-4, 1e-2, 1e-4], kernel_list):
+    for case_name, meas_case, beta, kernel in zip(['nominal'], [1], [1e-3], kernel_list):
         print(meas_case, kernel)
         # meas_sequence, p2_act_sequence, classifier_action, \
         #     threshold_info, M, outcomes_set = toy_classifier(M,
@@ -172,7 +174,7 @@ if __name__ == '__main__':
                                     action_set=[0, 1], type1_weight=type1,
                                     type2_weight=type2, finite_measurements=finite_meas)
         lg = LearningGame(game.action_set, measurement_set=game.measurement_set, finite_measurements=finite_meas,
-                                        decay_rate=1e-6, inverse_temperature=beta, seed=0, kernel=kernel)
+                                        decay_rate=0.*1e-6, inverse_temperature=beta, seed=0, kernel=kernel)
 
         lg.reset()
 
@@ -185,9 +187,9 @@ if __name__ == '__main__':
         tt_one = 0
         for idx in range(M-1):
             # Play
-            measurement = game.get_measurement()
+            measurement, _ = game.get_measurement()
             (action, prob, entropy[idx]) = lg.get_action(measurement, idx)
-            (costs[idx], all_costs) = game.play(action)
+            (costs[idx], all_costs, _) = game.play(action)
             p1_action.append(action)
             # Learn
             lg.update_energies(measurement, all_costs, idx)

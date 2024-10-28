@@ -5,13 +5,14 @@ Created on Fri Dec 1 17:57 2024
 
 @author: Joao Hespanha
 """
+from typing import NewType, Any, Callable
+from collections import OrderedDict
+import warnings
 
 import numpy as np
 import scipy.stats as sci_stats
 import math
 
-from typing import NewType, Any, Callable
-from collections import OrderedDict
 
 Action = NewType("Action", Any)
 Measurement = NewType("Measurement", Any)
@@ -142,9 +143,6 @@ class LearningGame:
         self.total_cost = 0.0
         """total_cost (float): total cost incurred so far; used to compute regret"""
 
-        self.measurement_cost = 0.0
-        """measurement_cost (float): the cost associated with the observed sequence of measurements"""
-
         self.normalization_sum = 0
         """normalization_sum (float): sum used to normalize "average cost". Given by
                      W[time_k]=\sum_{l=1}^k  exp(-lambda(time_k-time_l))
@@ -176,26 +174,25 @@ class LearningGame:
         #       SA: made self.energy into nested OrderedDicts instead of a regular dict in order to preserve order
         # TODO: why is their a decay at this stage?
         # compute Boltzmann distribution
-        decay = np.exp(-self.decay_rate * (time - self.time_update))
+        # decay = np.exp(-self.decay_rate * (time - self.time_update))
         if self.finite_measurements:
             energies_array = np.array(
-                [decay * v for (k, v) in self.energy[measurement].items()]
+                [v for (k, v) in self.energy[measurement].items()]
             )
 
         else:
             if np.abs(np.sum(list(measurement.values())) - 1.) > 1e-6:
+                print(measurement.values())
+                print(np.sum(list(measurement.values())))
                 raise ValueError('Measurement should sum to 1. with precision of 1e-6.')
 
             measurement_vec = np.array([measurement[meas] for meas in self._measurement_set])
             energies_array = np.zeros((len(self._action_set), len(self._measurement_set)))
             for action_idx, action in enumerate(self._action_set):
                 for measurement_idx, measurement_m in enumerate(self._measurement_set):
-                    # e_i = np.zeros(len(self._measurement_set))
-                    # e_i[measurement_idx] = 1.
-                    energies_array[action_idx, measurement_idx] += decay * self.energy[measurement_m][action]
-                    # energies_array[action_idx, measurement_idx] += decay * kernel(e_i, measurement_vec)
+                    energies_array[action_idx, measurement_idx] = self.energy[measurement_m][action]
 
-        min_energy = np.min(energies_array)
+        min_energy = np.min(energies_array, axis=0)
         exponent = -self.inverse_temperature * (energies_array - min_energy)
         probabilities = np.exp(exponent)
 
@@ -214,11 +211,15 @@ class LearningGame:
         total = np.sum(probabilities)
         if self.finite_measurements:
             # compute entropy, in a way that is safe even if some probabilities become zero
-            entropy = -np.dot(probabilities, exponent) / total + np.log(total) # TODO: update this for continuous case. dimensions?
+            entropy = -np.dot(probabilities, exponent) / total + np.log(total)
             # normalize probability
             probabilities = probabilities / total
         else:
             # TODO: figure out if there is a safe way to compute this version
+            if total == 0:
+                warnings.warn('Probabities sum to 0. Assigning uniform distribution.')
+                probabilities += 1.
+                total = np.sum(probabilities)
             probabilities = probabilities / total
             entropy = sci_stats.entropy(probabilities)
         return probabilities, entropy
@@ -271,11 +272,7 @@ class LearningGame:
         (probabilities, entropy) = self.get_Boltzmann_distribution(measurement, time)
         for k, a in enumerate(self._action_set):
             average_cost += probabilities[k] * costs[a]
-        # TODO: verify the entire rhs should not be weighted by decay
         self.total_cost = decay * self.total_cost + average_cost
-
-        # for action in self._action_set:
-        self.measurement_cost = 0.#decay * self.measurement_cost + costs[0]
 
         for m in self._measurement_set:
 
@@ -315,12 +312,6 @@ class LearningGame:
         #              = 1 + exp(-lambda(time_k-time_{k-1}))\sum_{l=1}^{k-1}  exp(-lambda(time_{k-1}-time_l))
         #              = 1 + exp(-lambda(time_k-time_{k-1})) W[time_{k-1}]
         self.normalization_sum = decay * self.normalization_sum + 1
-        # TODO: verify this is correct as it likely should be decay*(normalization_sum + 1) (i.e. def above is incorrect?)
-        # SA: Let W_{k+1} := \sum_{l=1}^k  exp(-lambda(time_{k+1}-time_l)) (i.e. change index on LHS to k+1)
-        #                  = exp(-lambda(time_{k+1}-time_l)) + \sum_{l=1}^{k-1}  exp(-lambda(time_{k+1}-time_l))
-        #                  = exp(-lambda(time_{k+1}-time_l)) + exp(-lambda(time_{k+1}-time_l)) \sum_{l=1}^{k-1}  exp(-lambda(time_{k}-time_l))
-        #                  = exp(-lambda(time_{k+1}-time_l)) * (W_k + 1)
-        # self.normalization_sum = decay * (self.normalization_sum + 1.)
 
         # Update time
         self.time_update = time
@@ -364,60 +355,38 @@ class LearningGame:
                     mn = inverse_decay * self.energy[m][a]
             minimum_cost += mn
 
-        # TODO: clarify this with Joao - why isnt the above an average over only actions for a particular measurement
-        if self.finite_measurements:
-            average_factor = 1 / len(self._action_set)
-        else:
-            average_factor = 1 / math.factorial(len(self._action_set))
-            average_factor = 1.
-        minimum_cost_new = average_factor * self.measurement_cost / self.normalization_sum
-
         if self.normalization_sum > 0:
-            minimum_cost /= self.normalization_sum
+            # also need to multiply by inverse_decay to get back to (13)
+            minimum_cost *= (inverse_decay / self.normalization_sum)
 
         regret = average_cost - minimum_cost
-        regret = average_cost - minimum_cost_new
         ## compute bounds
         J0 = self.min_cost  # TODO: there may be a better choice
-        J0 = (self.min_cost + self.max_cost) / 2  # TODO: there may be a better choice
-        delta = (  # TODO: why is defined differently than in the paper? SA
+        # J0 = (self.min_cost + self.max_cost) / 2  # TODO: there may be a better choice
+        delta = (
             np.exp(self.inverse_temperature * (J0 - self.min_cost))
             - np.exp(self.inverse_temperature * (J0 - self.max_cost))
         ) / (self.inverse_temperature * (self.max_cost - self.min_cost))
-        delta_ = (1 - np.exp(-self.inverse_temperature * (self.max_cost - self.min_cost))) / (
-                    self.inverse_temperature * (self.max_cost - self.min_cost))
         delta0 = (
             (np.exp(self.inverse_temperature * (J0 - self.min_cost)) - 1)
             / self.inverse_temperature
             - J0
             + delta * self.min_cost
         )
-        delta0_ = -(1 - delta)*self.min_cost
         alpha1 = 1 / delta
-        alpha1_ = 1 / delta_
 
         if self.finite_measurements:
-            cardinality_term = len(self._measurement_set)
+            cardinality_term = len(self._measurement_set) * np.log(len(self._action_set))
         else:
-            cardinality_term = min(len(self._measurement_set), len(self._action_set))
+            cardinality_term = len(self._measurement_set) * np.log(len(self._measurement_set) * len(self._action_set))
         alpha0 = (
             cardinality_term * inverse_decay
-            * np.log(len(self._action_set))
             / self.inverse_temperature
             / self.normalization_sum
         ) + delta0
-        alpha0_ = (
-            cardinality_term
-            * np.log(len(self._action_set))
-            / self.inverse_temperature
-            / self.normalization_sum
-        ) + delta0_
 
         cost_bound = alpha1 * (minimum_cost + alpha0)
-        regret_bound_old = cost_bound - minimum_cost
-        cost_bound_old = cost_bound
-        cost_bound = alpha1_ * (minimum_cost_new + alpha0_)
-        regret_bound = cost_bound - minimum_cost_new
+        regret_bound = cost_bound - minimum_cost
 
         # print(cost_bound_old, cost_bound, regret_bound_old, regret_bound)
 
@@ -465,122 +434,8 @@ class LearningGame:
             regret_bound,
             self.normalization_sum,
             alpha1,
-            alpha1 * alpha0,
+            alpha1 * alpha0
         )
 
-
-    def get_regret_v2(
-        self, display=False
-    ) -> tuple[float, float, float, float, float, int, float, float]:
-        """Computes regret based on after-the-fact costs in update_energies()
-
-        Returns:
-            tuple[float, float, float, float, float, int]:
-                average_cost (float): average cost incurred
-                minimum_cost (float): minimum cost for stationary policy
-                cost_bound (float): theoretical bound on cost
-                regret (float): cost regret
-                regret_bound (float): theoretical bound on regret
-                        regret_bound = alpha1 * minimum_cost +alpha0
-                normalization_sum (float): sum used to normalize "average cost".
-                alpha1 (float): multiplicative factor for theoretical bound
-                alpha0 (float): additive factor for theoretical bound
-
-        """
-        ## compute average cost
-        if self.normalization_sum > 0:
-            average_cost = self.total_cost / self.normalization_sum
-        else:
-            average_cost = 0.0
-        #
-        # ## compute average minimum cost
-        # minimum_cost = 0
-        # for m in self._measurement_set:
-        #     mn = np.inf
-        #     for a in self._action_set:
-        #         if self.energy[m][a] < mn:
-        #             mn = self.energy[m][a]
-        #     minimum_cost += mn
-        #
-        # if self.normalization_sum > 0:
-        #     minimum_cost /= self.normalization_sum
-        #
-        # regret = average_cost - minimum_cost
-        # # TODO: update regret for continuous measurement case
-        # ## compute bounds
-        # J0 = self.min_cost  # TODO: there may be a better choice
-        # J0 = (self.min_cost + self.max_cost) / 2  # TODO: there may be a better choice
-        # delta = (  # TODO: why is defined differently than in the paper? SA
-        #     np.exp(self.inverse_temperature * (J0 - self.min_cost))
-        #     - np.exp(self.inverse_temperature * (J0 - self.max_cost))
-        # ) / (self.inverse_temperature * (self.max_cost - self.min_cost))
-        # # delta = (1 - np.exp(-self.inverse_temperature * (self.max_cost - self.min_cost))) / (
-        # #             self.inverse_temperature * (self.max_cost - self.min_cost))
-        # delta0 = (
-        #     (np.exp(self.inverse_temperature * (J0 - self.min_cost)) - 1)
-        #     / self.inverse_temperature
-        #     - J0
-        #     + delta * self.min_cost
-        # )
-        # alpha1 = 1 / delta
-        #
-        # if self.finite_measurements:
-        #     cardinality_term = len(self._measurement_set)
-        # else:
-        #     cardinality_term = min(len(self._measurement_set), len(self._action_set))
-        # alpha0 = (
-        #     cardinality_term
-        #     * np.log(len(self._action_set))
-        #     / self.inverse_temperature
-        #     / self.normalization_sum
-        # ) + delta0
-        #
-        # cost_bound = alpha1 * (minimum_cost + alpha0)
-        # regret_bound = cost_bound - minimum_cost
-        #
-        # if DEBUG:
-        #     """print(
-        #         "  bound for xmin = {:13.6f} xmax = {:13.6f} x0 = {:13.6f}".format(
-        #             self.inverse_temperature * self.min_cost,
-        #             self.inverse_temperature * self.max_cost,
-        #             self.inverse_temperature * J0,
-        #         )
-        #     )"""
-        #     print(
-        #         "  J0     = {:10.6f}  delta   = {:10.6f}  delta0 = {:10.6f}".format(
-        #             J0, delta, delta0
-        #         )
-        #     )
-        #     print(
-        #         "  alpha1 = {:10.6f}  alpha0 = {:10.6f}  alpha1*alpha0 = {:10.6f}".format(
-        #             alpha1, alpha0, alpha0 * alpha1
-        #         )
-        #     )
-        #
-        # if display:
-        #     print(
-        #         "  normalization_sum = {:13.6f}  alpha1       = {:13.6f}  alpha0       = {:13.6f}".format(
-        #             self.normalization_sum, alpha1, alpha0
-        #         )
-        #     )
-        #     print(
-        #         "  minimum_cost      = {:13.6f}  average_cost = {:13.6f}  cost_bound   = {:13.6f}".format(
-        #             minimum_cost, average_cost, cost_bound
-        #         )
-        #     )
-        #     print(
-        #         "                                     regret       = {:13.6f}  regret_bound = {:13.6f}".format(
-        #             regret, regret_bound
-        #         )
-        #     )
-        #
-        # return (
-        #     average_cost,
-        #     minimum_cost,
-        #     cost_bound,
-        #     regret,
-        #     regret_bound,
-        #     self.normalization_sum,
-        #     alpha1,
-        #     alpha1 * alpha0,
-        # )
+    def get_energy(self):
+        return self.energy

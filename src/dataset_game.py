@@ -22,7 +22,10 @@ class DatasetGame(metaclass=ABCMeta):
         """
         self.opponent_action_sequence = opponent_action_sequence.squeeze()
         self.measurement_sequence = measurement_sequence.squeeze()
-        self.raw_measurements = raw_measurements.squeeze()
+        if raw_measurements is not None:
+            self.raw_measurements = raw_measurements.squeeze()
+        else:
+            self.raw_measurements = measurement_sequence # TODO: better to have switch case to not read raw measurements
         self.counter = 0
         self.action_set = action_set
         self.measurement_set = measurement_set
@@ -33,7 +36,7 @@ class DatasetGame(metaclass=ABCMeta):
         else:
             self.measurement = {k: 0. for k in measurement_set}
             self.measurement[measurement_set[0]] = 1.  # the measurements must sum to 1.
-        self.raw_measurement = raw_measurements[0]
+        self.raw_measurement = self.raw_measurements[0]
 
     @abstractmethod
     def cost(self, p1_action, p2_action) -> float:

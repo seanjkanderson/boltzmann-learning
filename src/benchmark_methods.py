@@ -1,29 +1,31 @@
-from sklearn import svm
+from sklearn.base import BaseEstimator
+from sklearn import svm, neural_network
 import numpy as np
 
 from decision_maker import DecisionMaker
 
 
-class MLModel(DecisionMaker):
-    # TODO: combine with StreamingLSTM as child classes?
-    def __init__(self, window_size: int, kernel: str, measurement_set, action_set, finite_measurement,
+class SklearnModel(DecisionMaker):
+    def __init__(self, model: BaseEstimator, window_size: int, measurement_set, action_set, finite_measurement,
                  update_frequency: int = 1, raw_measurement: bool = False, measurement_to_label: bool = False,
                  policy_map: dict = None):
-        self.window_size = window_size * len(action_set)
+
         self.measurement_set = measurement_set
         self.finite_measurement = finite_measurement
         self.update_frequency = update_frequency
         self.raw_measurement = raw_measurement
         self.measurement_to_label = measurement_to_label
         self.policy_map = policy_map
+        self.window_size = window_size * len(action_set)
         if self.measurement_to_label:
+            self.window_size = window_size
             if self.policy_map is None:
                 raise ValueError('Mapping from measurement to label requires a policy map to map labels to actions.')
         self.inputs = []
         self.outputs = []
 
         # map the measurement set to a one-hot encoding
-        self.model = svm.SVC(kernel=kernel)
+        self.model = model
         self.model_degenerate = True
         self.encoding_map = self.one_hot_encoding(measurement_set)
         self.action_set = action_set
@@ -38,9 +40,9 @@ class MLModel(DecisionMaker):
             encoding_map[meas] = one_hot[idx]
         return encoding_map
 
-    def measurement_to_embedding(self, measurement, action=None):
+    def measurement_to_embedding(self, measurement, raw_measurement=None, action=None):
         if self.raw_measurement:
-            embedding = measurement
+            embedding = raw_measurement
         else:
             if not self.finite_measurement:
                 embedding = np.array([measurement[k] for k in self.measurement_set])
@@ -60,13 +62,16 @@ class MLModel(DecisionMaker):
             min_cost = 1e10
             best_action = ''
             if self.measurement_to_label:
-                embedding = self.measurement_to_embedding(kwargs['raw_measurement'])
+                embedding = self.measurement_to_embedding(measurement=measurement,
+                                                          raw_measurement=kwargs['raw_measurement'])
                 input = np.hstack(embedding).reshape(1, -1)
                 predicted_label = self.model.predict(input)[0]
                 best_action = self.policy_map[predicted_label]
             else:
                 for action in self.action_set:
-                    embedding = self.measurement_to_embedding(measurement, action)
+                    embedding = self.measurement_to_embedding(measurement=measurement,
+                                                              raw_measurement=kwargs['raw_measurement'],
+                                                              action=action)
                     input = np.hstack(embedding).reshape(1, -1)
                     predicted_cost = self.model.predict(input)[0]
                     if predicted_cost < min_cost:
@@ -76,12 +81,13 @@ class MLModel(DecisionMaker):
 
     def update_energies(self, measurement, costs: dict, time: float = 0.0, **kwargs):
         if self.measurement_to_label:
-            embedding = self.measurement_to_embedding(kwargs['raw_measurement'])
+            embedding = self.measurement_to_embedding(measurement, raw_measurement=kwargs['raw_measurement'])
             self.inputs.append(embedding)
             self.outputs.append(kwargs['opponent_action'])
         else:
             for action, cost in costs.items():
-                embedding = self.measurement_to_embedding(measurement, action)
+                embedding = self.measurement_to_embedding(measurement=measurement,
+                                                          raw_measurement=kwargs['raw_measurement'], action=action)
                 self.inputs.append(embedding)
                 self.outputs.append(cost)
 
@@ -92,9 +98,32 @@ class MLModel(DecisionMaker):
             try:
                 self.model.fit(np.array(self.inputs), np.array(self.outputs))
                 self.model_degenerate = False
-            except ValueError as e:  # TODO: should only allow Exception for when data is insufficient
+            except ValueError as e:
                 print('model is degenerate with {} samples | {}'.format(len(self.outputs), e))
                 self.model_degenerate = True
+
+
+class OptimalPolicy(DecisionMaker):
+
+    def __init__(self, opt_policy1, opt_policy2, switch_time, action_set, label_to_action):
+        self.opt_policy1 = opt_policy1
+        self.opt_policy2 = opt_policy2
+        self.switch_time = switch_time
+        self.action_set = action_set
+        self.label_to_action = label_to_action
+
+    def get_action(self, measurement, time: float = 0.0, **kwargs):
+
+        policy = self.opt_policy1
+        if time >= self.switch_time + 2:
+            policy = self.opt_policy2
+        prob = policy[measurement]
+        action = np.random.choice(self.action_set, p=prob.squeeze())
+        # action = self.label_to_action[opponent_action]
+        return action, prob.squeeze(), None
+
+    def update_energies(self, measurement, costs: dict, time: float = 0.0, **kwargs) -> None:
+        pass
 
 
 class MultiArmBandit(DecisionMaker):
@@ -171,7 +200,7 @@ class MultiArmBandit(DecisionMaker):
     #         return (np.argmax(ucb))
 
 
-class MultiArmBanditFullInfo(DecisionMaker):
+class BayesianEstimator(DecisionMaker):
 
     def __init__(self, action_set: list, measurement_set: list):
         self.action_set = action_set
@@ -179,7 +208,7 @@ class MultiArmBanditFullInfo(DecisionMaker):
         self.n_arms = len(action_set)
         self.q = np.zeros((self.n_arms, len(measurement_set)))  # init average cost
 
-    def get_action(self, measurement, time: float = 0.0):
+    def get_action(self, measurement, time: float = 0.0, **kwargs):
         measurement_idx = self.measurement_set.index(measurement)
         action_idx = np.argmin(self.q[:, measurement_idx], axis=0)
         return self.action_set[action_idx], None, None

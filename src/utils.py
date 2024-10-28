@@ -1,8 +1,9 @@
 import itertools
-from copy import deepcopy
+from copy import deepcopy, copy
 
 import numpy as np
 import matplotlib.pyplot as plt
+import pandas as pd
 
 
 def plot_simulation_results(iters, costs, average_costs, entropies, average_cost_bounds=None, title_prefix=""):
@@ -94,7 +95,7 @@ def plot_comparison(iters, methods: list, costs: list, average_costs: list, entr
         ax.set_xlabel('t')
         ax.set_ylabel('cost')
         ax.set_ylim((-1.1, 1.1))
-        ax.set_title(f"{title_prefix} Costs, Average Costs, and Entropy (Start)")
+        ax.set_title(f"{title_prefix}")
 
         # # Plot costs, average cost, and entropy, skipping start
         # ax_twin = ax[1].twinx()
@@ -149,7 +150,7 @@ def generate_probabilities_matrix(prob_matrix: np.array) -> (list[str], np.array
 class GamePlay:
 
     def __init__(self, decision_makers: list, game, horizon: int,
-                 disp_results_per_iter: int, binary_cont_measurement: bool = False):
+                 disp_results_per_iter: int, store_energy_hist: bool, binary_cont_measurement: bool = False):
         """ creates a parallel game for each decision maker
         Args:
             decision_makers (list): decision-making algorithms to be tested # TODO should create an abstract class for this?
@@ -158,12 +159,14 @@ class GamePlay:
             disp_results_per_iter (int): how often to output current gameplay info (1 is every step)
             binary_cont_measurement (bool): whether to plot current policy at each disp_results_per_iter. Only supported
                                             for binary continuous measurement settings.
+            store_energy_hist (bool): whether to keep track of the energy at each time step. Can take significant memory
         """
         self.decision_makers = decision_makers  # each decision maker will
-        self.games = [deepcopy(game) for _ in decision_makers]  # create an identical game for each decision maker
+        self.game = game
         self.horizon = horizon
         self.disp_results_per_iter = disp_results_per_iter
         self.binary_cont_measurement = binary_cont_measurement
+        self._store_energy_hist = store_energy_hist
 
     def play_games(self) -> dict[dict]:
         """ Play all the games
@@ -171,18 +174,28 @@ class GamePlay:
 
         """
         outputs = dict()
-        for game, decision_maker in zip(self.games, self.decision_makers):
+        for decision_maker in self.decision_makers:
+            game_i = deepcopy(self.game)  # create a copy of the game
             algorithm_name = decision_maker.__class__.__name__
+            if algorithm_name == 'SklearnModel':
+                algorithm_name = decision_maker.model.__class__.__name__
             print('Playing', algorithm_name)
-            outputs[algorithm_name] = self._play_game(game, decision_maker)
+            if algorithm_name == 'LearningGame':
+                algorithm_name = r'Boltzmann Learning | $\lambda={:.1e}, \beta={:.1e}$'\
+                    .format(decision_maker.decay_rate, decision_maker.inverse_temperature)
+            outputs[algorithm_name] = self._play_game(game_i, decision_maker)
+        print('Finished playing games.')
         return outputs
 
     def _play_game(self, game, decision_maker) -> dict:
 
         costs = np.zeros(self.horizon)
+        expected_costs = np.zeros(self.horizon)
         cost_bounds = np.zeros(self.horizon)
         entropy = np.zeros(self.horizon)
         p1_action = []
+        probs = []
+        energies = dict()
 
         for idx in range(self.horizon - 1):
             # Play
@@ -191,6 +204,20 @@ class GamePlay:
                                                                    raw_measurement=raw_measurement)
             costs[idx], all_costs, opponent_action = game.play(action)
             p1_action.append(action)
+            probs.append(prob)
+            if self._store_energy_hist:
+                if hasattr(decision_maker, 'energy'):
+                    # TODO: should be a cleaner way to do this but gets around immutability of dict
+                    for key, val in decision_maker.energy.items():
+                        for key2, val2 in val.items():
+                            total_key = key + str(key2)
+                            if total_key not in energies.keys():
+                                energies[total_key] = []
+                            energies[total_key].append(val2)
+            if prob is None:
+                expected_costs[idx] = None
+            else:
+                expected_costs[idx] = (np.array([v for k, v in all_costs.items()]) * prob).sum()
             # Learn
             decision_maker.update_energies(measurement=measurement, costs=all_costs, action=action,
                                            raw_measurement=raw_measurement,
@@ -204,6 +231,7 @@ class GamePlay:
 
             # Output
             if (idx % self.disp_results_per_iter == 0) or (idx == self.horizon - 1):
+                print(idx)
                 # print("iter={:4d}, action_1 = {:2.0f}, " # TODO: generalize this printout for different action types
                 #       "cost = {:2.0f}, "
                 #       "all_costs = {:s}".format(idx,
@@ -220,11 +248,12 @@ class GamePlay:
                     plot_binary_policy(decision_maker=decision_maker, game=game, time_idx=idx)
 
         iters = range(self.horizon)
-        average_costs = np.divide(np.cumsum(costs), range(1, self.horizon + 1))
-        average_cost_bounds = np.divide(np.cumsum(cost_bounds), np.add(range(self.horizon), 1))
-        print('Average costs: {} | Average cost bounds: {}'.format(average_costs[-10:].mean(),
-                                                                   average_cost_bounds.mean()))
-        return dict(iters=iters, costs=costs, average_costs=average_costs, entropy=entropy)
+        moving_average_costs = pd.Series(costs).rolling(window=1000, min_periods=1).mean()
+        moving_average_cost_bounds = pd.Series(cost_bounds).rolling(window=1000, min_periods=1).mean()
+        print('Rolling average costs: {} | Average cost bounds: {}'.format(moving_average_costs[-10:].mean(),
+                                                                   moving_average_cost_bounds.mean()))
+        return dict(iters=iters, costs=costs, cost_bounds=cost_bounds, expected_costs=expected_costs,
+                    average_costs=moving_average_costs, entropy=entropy, probs=probs, energies=energies)
 
     @staticmethod
     def plot_game_outcome(outcomes, title='', ax=None):
