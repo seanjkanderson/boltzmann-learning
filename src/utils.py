@@ -1,4 +1,5 @@
 import itertools
+import time
 from copy import deepcopy, copy
 
 import numpy as np
@@ -88,8 +89,6 @@ def plot_comparison(iters, methods: list, costs: list, average_costs: list, entr
         lines = ax.plot(iters, average_cost, '-', label='average cost | {}'.format(label))
         if average_cost_bound is not None:
             lines += ax.plot(iters, average_cost_bound, '-', label='average cost bound | {}'.format(label))
-        # for idx, entropy in enumerate(entropies):
-        #     lines += ax_twin.plot(iters, entropy, '.', label='entropy: P{}'.format(idx+1), color='tab:green')
 
         ax.grid()
         ax.set_xlabel('t')
@@ -97,20 +96,6 @@ def plot_comparison(iters, methods: list, costs: list, average_costs: list, entr
         ax.set_ylim((-1.1, 1.1))
         ax.set_title(f"{title_prefix}")
 
-        # # Plot costs, average cost, and entropy, skipping start
-        # ax_twin = ax[1].twinx()
-        # lines = ax[1].plot(iters[slc], average_cost[slc], '-', label='average cost | {}'.format(label))
-        # if average_cost_bound is not None:
-        #     lines += ax[1].plot(iters[slc], average_cost_bound[slc], '-', label='average cost bound | {}'.format(label))
-        # for idx, entropy in enumerate(entropies):
-        #     lines += ax_twin.plot(iters[slc], entropy[slc], '.', label='entropy: P{} | {}'.format(idx+1, label))
-        #
-        # ax[1].grid()
-        # ax[1].set_xlabel('t')
-        # ax[1].set_ylabel('cost')
-        # ax_twin.set_ylabel('entropy')
-        # ax[1].set_title(f"{title_prefix} Costs, Average Costs, and Entropy (End)")
-        # ax_twin.legend(lines, [line.get_label() for line in lines])
     ax.scatter(range(len(entropies[0])), entropies[0], label='LearningGame entropy', s=1)
     ax.legend()
     # fig.tight_layout()
@@ -148,12 +133,12 @@ def generate_probabilities_matrix(prob_matrix: np.array) -> (list[str], np.array
 
 
 class GamePlay:
-
+    """Creates a game for each decision maker to play. Runs in series, but could be parallelized."""
     def __init__(self, decision_makers: list, game, horizon: int,
                  disp_results_per_iter: int, store_energy_hist: bool, binary_cont_measurement: bool = False):
-        """ creates a parallel game for each decision maker
+        """
         Args:
-            decision_makers (list): decision-making algorithms to be tested # TODO should create an abstract class for this?
+            decision_makers (list): decision-making algorithms to be tested
             game: an instance of a game to play # TODO: should specify type
             horizon (int): the horizon of the game
             disp_results_per_iter (int): how often to output current gameplay info (1 is every step)
@@ -188,6 +173,15 @@ class GamePlay:
         return outputs
 
     def _play_game(self, game, decision_maker) -> dict:
+        """
+        Play a particular game. Helper function for self.play_games()
+        Args:
+            game: the game to play  #TODO: needs typing
+            decision_maker (decision_maker.DecisionMaker): the agent to make decisions #TODO: needs typing
+
+        Returns: (dict) containing a summary of relevant statistics from the simulation
+
+        """
 
         costs = np.zeros(self.horizon)
         expected_costs = np.zeros(self.horizon)
@@ -196,12 +190,13 @@ class GamePlay:
         p1_action = []
         probs = []
         energies = dict()
-
+        start_time = time.perf_counter()
         for idx in range(self.horizon - 1):
             # Play
             measurement, raw_measurement = game.get_measurement()
             action, prob, entropy[idx] = decision_maker.get_action(measurement=measurement, time=idx,
                                                                    raw_measurement=raw_measurement)
+            # print('action time {}'.format(time.perf_counter() - st))
             costs[idx], all_costs, opponent_action = game.play(action)
             p1_action.append(action)
             probs.append(prob)
@@ -224,7 +219,7 @@ class GamePlay:
                                            time=idx, action_cost=costs[idx], opponent_action=opponent_action)
             # Store regret
             try:
-                # TODO: ideally all decision makers with have regret function
+                # TODO: ideally all decision makers will have regret function
                 (_, _, cost_bounds[idx], _, _, _, _, _) = decision_maker.get_regret(display=False)
             except Exception:
                 pass
@@ -232,52 +227,22 @@ class GamePlay:
             # Output
             if (idx % self.disp_results_per_iter == 0) or (idx == self.horizon - 1):
                 print(idx)
-                # print("iter={:4d}, action_1 = {:2.0f}, " # TODO: generalize this printout for different action types
-                #       "cost = {:2.0f}, "
-                #       "all_costs = {:s}".format(idx,
-                #                                 action,
-                #                                 # p2_act_sequence[
-                #                                 #     idx],
-                #                                 costs[
-                #                                     idx],
-                #                                 str(all_costs)))
-                # print('measurement: {}'.format(str(measurement)))
-                # print("energy: {}".format(decision_maker.energy))
+                if idx > 0:
+                    elapsed_time = time.perf_counter() - start_time
+                    print('Elapsed time: {} | Average per step time: {}'.format(elapsed_time, elapsed_time / idx))
 
                 if self.binary_cont_measurement:
                     plot_binary_policy(decision_maker=decision_maker, game=game, time_idx=idx)
-
+        elapsed_time = time.perf_counter() - start_time
+        print('Total time: {} | Average per step time: {}'.format(elapsed_time, elapsed_time/self.horizon))
         iters = range(self.horizon)
         moving_average_costs = pd.Series(costs).rolling(window=1000, min_periods=1).mean()
-        moving_average_cost_bounds = pd.Series(cost_bounds).rolling(window=1000, min_periods=1).mean()
-        print('Rolling average costs: {} | Average cost bounds: {}'.format(moving_average_costs[-10:].mean(),
-                                                                   moving_average_cost_bounds.mean()))
         return dict(iters=iters, costs=costs, cost_bounds=cost_bounds, expected_costs=expected_costs,
                     average_costs=moving_average_costs, entropy=entropy, probs=probs, energies=energies)
 
-    @staticmethod
-    def plot_game_outcome(outcomes, title='', ax=None):
-
-        methods = []
-        costs = []
-        average_costs = []
-        entropies = []
-        for key, entry in outcomes.items():
-            iters = entry['iters']
-            methods.append(key)
-            costs.append(entry['costs'])
-            average_costs.append(entry['average_costs'])
-            entropies.append(entry['entropy'])
-        plot_comparison(iters=iters, methods=methods,
-                        costs=costs,
-                        average_costs=average_costs,
-                        entropies=entropies,
-                        average_cost_bounds=None,
-                        title_prefix=title, ax=ax)
-
 
 def plot_binary_policy(decision_maker, game, time_idx):
-
+    """Plot the action selection probabilities for a binary setting (i.e. |A|=2)."""
     fig, ax = plt.subplots()
     p = []
     meas_range = np.arange(0.1, 1.0, step=.01).round(2)
@@ -294,7 +259,6 @@ def plot_binary_policy(decision_maker, game, time_idx):
     pos_res = np.array(pos_res)
 
     ax[0].plot(meas_range, p, label='Boltzmann')
-    # ax[0].axvline(x=classifier_threshold, c='red', label='classifier threshold')
     ax[0].plot(meas_range, pos_res, label='percent malicious')
     ax[0].legend()
     ax[0].set_ylabel('Prob action="mark malicious"')

@@ -5,13 +5,14 @@ Created on Fri Dec 1 17:57 2024
 
 @author: Joao Hespanha
 """
-from typing import NewType, Any, Callable
+from typing import NewType, Any
 from collections import OrderedDict
 import warnings
 
 import numpy as np
 import scipy.stats as sci_stats
-import math
+
+from decision_maker import DecisionMaker
 
 
 Action = NewType("Action", Any)
@@ -19,31 +20,8 @@ Measurement = NewType("Measurement", Any)
 
 DEBUG = False
 
-np.random.seed(0)
 
-
-def logsumexp(x):
-    c = x.max()
-    return c + np.log(np.sum(np.exp(x - c)))
-
-
-def get_random_integer(rng: np.random, p: np.array) -> int:
-    """generate random integer for a given probability distribution
-
-    Args:
-        rng (np.random): random number generator
-        p (np.array): vector with probabilities, which must add up to 1.0
-
-    Returns:
-        int: random integer from 0 to len(p)-1
-    """
-    cum = np.cumsum(p)
-    uniform_rand = rng.random()
-    k = np.sum(uniform_rand > cum)
-    return k
-
-
-class LearningGame:
+class LearningGame(DecisionMaker):
     """Class to learn no-regret policy"""
 
     def __init__(
@@ -54,15 +32,14 @@ class LearningGame:
         decay_rate: float = 0.0,
         inverse_temperature: float = 0.01,
         seed: int = None,
-        kernel: Callable[[np.array, np.array], np.float64] = None,
-        time_bound: float = 0.0
+        time_bound: float = 1.0
     ):
         """Constructor for LearningGame class
 
-        Args: TODO: update definitions
-            action_set (set[Action]): set of all possible actions
-            measurement_set (set[Measurement], optional): set of all possible measurements.
-                Defaults to {None}.
+        Args:
+            action_set (list[Action]): list of all possible actions
+            measurement_set (list[Measurement], optional): list of all possible measurements.
+                Defaults to None.
             finite_measurements (bool, optional): indicates whether the set of measurements is discrete or continuous.
                 In the discrete case (True), the measurements will be elements of measurement_set.
                 In the continuous case (False), the measurements will be probabilities associated with the classes in
@@ -78,11 +55,12 @@ class LearningGame:
             seed (int, optional): seed for action random number generator.
                 When None, a nondeterministic seed will be generated.
                 Defaults to None.
-            time_bound (float): referred to as \mu_0 in the paper, # TODO: what should default be?
-                this is the short term bound on the time gap between samples
+            time_bound (float, optional): the max time between samples, only used to compute regret, though there are
+                other (better) ways to do so in general without this (i.e. compute the regret after one time step).
+                Defaults to 1.0.
         """
 
-        ## parameters
+        # parameters
         self._action_set = action_set
         self.m_actions = len(self._action_set)
         """action_set (set[Action]): set of all possible actions"""
@@ -107,12 +85,9 @@ class LearningGame:
         self.inverse_temperature = inverse_temperature
         """inverse_temperature (float): inverse of thermodynamic temperature for the Boltzmann distribution."""
 
-        ## initialize random number generator
+        # initialize random number generator
         self.rng = np.random.default_rng(seed)
         """rng (np.random._generator.Generator): random number generator to select actions"""
-
-        self.kernel = kernel
-        """kernel (Callable[[np.array, np.array], np.float]): Applies kernel trick for computing probabilities"""
 
         self.time_bound = time_bound
         """time_bound (float): referred to as \mu_0 in the paper,
@@ -123,7 +98,7 @@ class LearningGame:
     def reset(self):
         """Reset all parameters: total cost, min/max costs, energies"""
 
-        ## initialize energies
+        # initialize energies
         self.energy = OrderedDict(
             [(y, OrderedDict([(a, 0.0) for a in self._action_set])) for y in self._measurement_set]
         )
@@ -134,12 +109,12 @@ class LearningGame:
             where t_k is the time at which we got the last update of the energies.
         """
 
-        ## initialize time of last update for the energies
+        # initialize time of last update for the energies
         self.time_update = 0
         """time_update (float): time at which the energies were updates last. Only needed when the
         information exponential decay rate `decay_rate` is not zero."""
 
-        ## initialize variables needed to compute regret
+        # initialize variables needed to compute regret
         self.total_cost = 0.0
         """total_cost (float): total cost incurred so far; used to compute regret"""
 
@@ -149,7 +124,7 @@ class LearningGame:
         where t_k is the time at which we got the last update of the energies.
         For lambda=0.0 this is just the total number of updates."""
 
-        ## initialize bounds
+        # initialize bounds
         self.min_cost = np.inf
         """min_cost (float): minimum value of the cost"""
         self.max_cost = -np.inf
@@ -169,15 +144,13 @@ class LearningGame:
                 probabilities (np.array): probability distribution
                 entropy (float): distribution's entropy
         """
-        # TODO: It seems a little dangerous to rely on set order to construct the probability array
-        #        An alternative would be to keep probabilities as a dict, but this would be less efficient
-        #       SA: made self.energy into nested OrderedDicts instead of a regular dict in order to preserve order
-        # TODO: why is their a decay at this stage?
         # compute Boltzmann distribution
-        # decay = np.exp(-self.decay_rate * (time - self.time_update))
+        # from the equations it may not be immediately clear why the decay is included here. It is because at the time
+        # of selecting actions, we need to discount the energy due to time passed since we last updated our energy.
+        decay = np.exp(-self.decay_rate * (time - self.time_update))
         if self.finite_measurements:
             energies_array = np.array(
-                [v for (k, v) in self.energy[measurement].items()]
+                [decay*v for (k, v) in self.energy[measurement].items()]
             )
 
         else:
@@ -186,11 +159,10 @@ class LearningGame:
                 print(np.sum(list(measurement.values())))
                 raise ValueError('Measurement should sum to 1. with precision of 1e-6.')
 
-            measurement_vec = np.array([measurement[meas] for meas in self._measurement_set])
             energies_array = np.zeros((len(self._action_set), len(self._measurement_set)))
             for action_idx, action in enumerate(self._action_set):
                 for measurement_idx, measurement_m in enumerate(self._measurement_set):
-                    energies_array[action_idx, measurement_idx] = self.energy[measurement_m][action]
+                    energies_array[action_idx, measurement_idx] = decay*self.energy[measurement_m][action]
 
         min_energy = np.min(energies_array, axis=0)
         exponent = -self.inverse_temperature * (energies_array - min_energy)
@@ -202,11 +174,8 @@ class LearningGame:
             pbar_a_c = probabilities / probabilities.sum()
             # P(a_k = a | F_k) = (\sum_c e_c.T@y_k P(a_k = a, c_k = c | F_k)) /
             #                    (\sum_c e_c.T@y_k sum_{\bar{a}} P(a_k = \bar{a}, c_k = c | F_k))
-            if self.kernel is None:
-                probabilities = np.array([pbar_a_c[:, meas_idx]*measurement[meas]
-                                      for meas_idx, meas in enumerate(self._measurement_set)]).sum(axis=0)
-            else:
-                probabilities = self.kernel(pbar_a_c, measurement_vec)
+            probabilities = np.array([pbar_a_c[:, meas_idx]*measurement[meas]
+                                  for meas_idx, meas in enumerate(self._measurement_set)]).sum(axis=0)
 
         total = np.sum(probabilities)
         if self.finite_measurements:
@@ -215,12 +184,12 @@ class LearningGame:
             # normalize probability
             probabilities = probabilities / total
         else:
-            # TODO: figure out if there is a safe way to compute this version
             if total == 0:
                 warnings.warn('Probabities sum to 0. Assigning uniform distribution.')
                 probabilities += 1.
                 total = np.sum(probabilities)
             probabilities = probabilities / total
+            # TODO: add option for not computing this as it is the slowest line
             entropy = sci_stats.entropy(probabilities)
         return probabilities, entropy
 
@@ -241,9 +210,7 @@ class LearningGame:
         """
         (probabilities, entropy) = self.get_Boltzmann_distribution(measurement, time)
         # get integer
-        # TODO: discuss whether this is worth keeping or use get_random_integer
         action_index = self.rng.choice(self.m_actions, p=probabilities)
-        # action_index = get_random_integer(self.rng, probabilities)
         # convert to action
         action = list(self._action_set)[action_index]
         return (action, probabilities, entropy)
@@ -256,9 +223,10 @@ class LearningGame:
         Args:
             measurement (Measurement): measurement, which must be an element of self._measurement_set
             costs (dict[Action,float]): costs for each action
+            time (float): the time at which the measurement is made
         """
 
-        ## update bounds
+        # update bounds
         for k, a in enumerate(self._action_set):
             if costs[a] < self.min_cost:
                 self.min_cost = costs[a]
@@ -267,7 +235,7 @@ class LearningGame:
 
         decay = np.exp(-self.decay_rate * (time - self.time_update))
 
-        ## update regrets
+        # update regrets
         average_cost = 0
         (probabilities, entropy) = self.get_Boltzmann_distribution(measurement, time)
         for k, a in enumerate(self._action_set):
@@ -277,13 +245,6 @@ class LearningGame:
         for m in self._measurement_set:
 
             if self.finite_measurements:
-                ## Update all energies (SA: seems to be inconsistent with paper?)
-                #  Each energy is of the form
-                #     E[a,time_k]=\sum_{l=1}^k  exp(-lambda(time_k-time_l)) cost[a,time_l]
-                #                = cost[a,time_k] + \sum_{l=1}^{k-1}  exp(-lambda(time_k-time_l)) cost[a,time_l]
-                #                = cost[a,time_k] + exp(-lambda(time_k-time_{k-1}))
-                #                                       \sum_{l=1}^{k-1}  exp(-lambda(time_{k-1}-time_l)) cost[a,time_l]
-                #                = cost[a,time_k] + exp(-lambda(time_k-time_{k-1})) E[a,time_{k-1}]
 
                 # Update the energies (both continuous and discrete measurements)
                 # E[a, time_{k+1}] := \sum_{l=1}^k exp(-lambda(time_k-time_l)) cost[a,time_l]. Let m = k + 1; k = m - 1
@@ -306,7 +267,7 @@ class LearningGame:
             for a in self._action_set:
                 self.energy[m][a] = decay * (self.energy[m][a] + costs[a] * weight)
 
-                ## Update normalization_sum, which is given by
+                # Update normalization_sum, which is given by
         #     W[time_k]=\sum_{l=1}^k  exp(-lambda(time_k-time_l))
         #              = 1 + \sum_{l=1}^{k-1}  exp(-lambda(time_k-time_l))
         #              = 1 + exp(-lambda(time_k-time_{k-1}))\sum_{l=1}^{k-1}  exp(-lambda(time_{k-1}-time_l))
@@ -338,14 +299,14 @@ class LearningGame:
         # decay (depends on t_{k+1} but can be bounded by time_bound)
         inverse_decay = np.exp(self.decay_rate * self.time_bound)
 
-        ## compute average cost
+        # compute average cost
         if self.normalization_sum > 0:
             # multiply by inverse_decay in order to get back to paper (13)
             average_cost = inverse_decay * self.total_cost / self.normalization_sum
         else:
             average_cost = 0.0
 
-        ## compute average minimum cost
+        # compute average minimum cost
         minimum_cost = 0
         for m in self._measurement_set:
             mn = np.inf
@@ -360,9 +321,8 @@ class LearningGame:
             minimum_cost *= (inverse_decay / self.normalization_sum)
 
         regret = average_cost - minimum_cost
-        ## compute bounds
+        # compute bounds
         J0 = self.min_cost  # TODO: there may be a better choice
-        # J0 = (self.min_cost + self.max_cost) / 2  # TODO: there may be a better choice
         delta = (
             np.exp(self.inverse_temperature * (J0 - self.min_cost))
             - np.exp(self.inverse_temperature * (J0 - self.max_cost))
@@ -387,8 +347,6 @@ class LearningGame:
 
         cost_bound = alpha1 * (minimum_cost + alpha0)
         regret_bound = cost_bound - minimum_cost
-
-        # print(cost_bound_old, cost_bound, regret_bound_old, regret_bound)
 
         if DEBUG:
             """print(
@@ -439,3 +397,19 @@ class LearningGame:
 
     def get_energy(self):
         return self.energy
+
+
+def get_random_integer(rng: np.random, p: np.array) -> int:
+    """generate random integer for a given probability distribution
+
+    Args:
+        rng (np.random): random number generator
+        p (np.array): vector with probabilities, which must add up to 1.0
+
+    Returns:
+        int: random integer from 0 to len(p)-1
+    """
+    cum = np.cumsum(p)
+    uniform_rand = rng.random()
+    k = np.sum(uniform_rand > cum)
+    return k

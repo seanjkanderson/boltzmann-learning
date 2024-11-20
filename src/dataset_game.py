@@ -4,7 +4,7 @@ from typing import Union
 
 
 class DatasetGame(metaclass=ABCMeta):
-
+    """Creates a game in which it's assumed that the data comes"""
     def __init__(self, action_set: list, measurement_set: list, opponent_action_sequence,
                  measurement_sequence, finite_measurements: bool, raw_measurements=None):
         """Create game
