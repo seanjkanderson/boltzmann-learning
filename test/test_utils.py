@@ -1,7 +1,7 @@
 import unittest
 import numpy as np
 
-from utils import generate_probabilities_matrix
+from examples.simulation_utils.utils import generate_probabilities_matrix
 
 
 class TestUtils(unittest.TestCase):

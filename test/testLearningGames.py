@@ -333,6 +333,7 @@ class TestContinuousMeasurementLearningGames(unittest.TestCase):
         pass
 
     def test_theorem_2(self):
+        """checks to make sure that the inequality in Theorem 2 holds for a variety"""
         action_set = ["a1", "a2", "a3"]
         measurement_set = ["y1", "y2"]
         # use low temperature to converge to deterministic very fast, but bound is bad
@@ -345,7 +346,6 @@ class TestContinuousMeasurementLearningGames(unittest.TestCase):
         expected_costs = np.zeros((M,))
         e_vecs = np.eye(len(measurement_set))
         # because it's an LP, the min/max occur on the boundaries of the feasible region.
-        # TODO: Check each standard basis vector
         dt = 1.
         decay = np.exp(-decay_rate * dt)
         measurement_tests = [OrderedDict(y1=0.5, y2=0.5), OrderedDict(y1=0.9, y2=0.1),
@@ -395,9 +395,8 @@ class TestContinuousMeasurementLearningGames(unittest.TestCase):
                 alpha0 = len(measurement_set)*np.log(len(measurement_set)*len(action_set)) / (beta * w_k) - \
                                 (1 - delta) * lg_inf.min_cost
                 rhs = alpha1 * (rhs_weighted_cost + alpha0)
-
+                # make sure that the inequality in Theorem 2 holds
                 self.assertLessEqual(lhs, rhs)
-
 
     def test_nonextrema_bound(self):
         action_set = ["a1", "a2", "a3"]
@@ -475,14 +474,12 @@ class TestContinuousMeasurementLearningGames(unittest.TestCase):
         v3 = v2
         z = {action_set[0]: v1, action_set[1]: v2, action_set[2]: v3}
         # because it's an LP, the min/max occur on the boundaries of the feasible region.
-        # TODO: Check each standard basis vector
         vmax = [np.max(z[a]) for a in action_set]
         dt = 1.
         decay = np.exp(-decay_rate * dt)
-        # TODO: iterate over all actions to check this holds for every a
-        measurement_extrema = [OrderedDict(y1=1., y2=0.), OrderedDict(y1=0., y2=1.), OrderedDict(y1=0.5, y2=0.5)]
+        measurement_testpoints = [OrderedDict(y1=1., y2=0.), OrderedDict(y1=0., y2=1.), OrderedDict(y1=0.5, y2=0.5)]
         v_options = [v1]
-        for measurement, v in itertools.product(measurement_extrema, v_options):
+        for measurement, v in itertools.product(measurement_testpoints, v_options):
             print(measurement, v)
             yk = np.array([val for _, val in measurement.items()])
 

@@ -6,20 +6,23 @@ setup(
     packages=find_packages(where="src"),
     package_dir={"": "src"},
     install_requires=[
-        'numpy', 'matplotlib', 'scipy'
+        'numpy',
+        'matplotlib',
+        'scipy',
+        'pandas',
+        'scikit-learn',
+        'lightgbm'
     ],
     extras_require={
         "dev": [
             "pytest",
-            # Add other development dependencies here
         ],
     },
     entry_points={
         "console_scripts": [
-            # Define any command-line scripts here
-            # e.g., 'command_name=module:function'
         ],
     },
+    data_files=[('/data/', []), ('/ember_data/', [])],
     include_package_data=True,
-    python_requires=">=3.6",
+    python_requires=">=3.9",
 )
