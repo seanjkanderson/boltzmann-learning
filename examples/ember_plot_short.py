@@ -169,9 +169,9 @@ def data_preprocessing(outcomes: dict[str, dict[str, Any]]):
     for key, entry in outcomes.items():
         print(key)
 
-        if key == 'SVR':
+        if key == 'SVR' or key == 'SVC':
             key = 'SVM'
-        elif key == 'MLPRegressor':
+        elif key == 'MLPRegressor' or key == 'MLPClassifier':
             key = 'MLP'
 
         if np.any(np.mean(entry['costs']) <= min_bl_costs[0]) or 'Boltzmann' not in key:
@@ -195,7 +195,7 @@ def data_preprocessing(outcomes: dict[str, dict[str, Any]]):
 
 if __name__ == '__main__':
 
-    type1_weight = 10.0
+    type1_weight = 1.0
     type2_weight = 1.0
     n_train = 50000
     n_test = 350000
@@ -208,7 +208,7 @@ if __name__ == '__main__':
         step = ''
     base_file = f'../data/ember_short{step}_{n_train}'
     classifier_file = f'../data/ember_short_unit_{n_train}{type1_weight}_{type2_weight}_short_classifier.pkl'
-    file_dir = base_file + f'_{type1_weight}_{type2_weight}_ya2j_nonraw_noenergy'
+    file_dir = base_file + f'_{type1_weight}_{type2_weight}_y2l_nonraw_wenergy'
     outfile = file_dir
     print(file_dir)
 

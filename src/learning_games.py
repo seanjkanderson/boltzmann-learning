@@ -32,7 +32,8 @@ class LearningGame(DecisionMaker):
         decay_rate: float = 0.0,
         inverse_temperature: float = 0.01,
         seed: int = None,
-        time_bound: float = 1.0
+        time_bound: float = 1.0,
+        compute_entropy: bool = True
     ):
         """Constructor for LearningGame class
 
@@ -58,6 +59,8 @@ class LearningGame(DecisionMaker):
             time_bound (float, optional): the max time between samples, only used to compute regret, though there are
                 other (better) ways to do so in general without this (i.e. compute the regret after one time step).
                 Defaults to 1.0.
+            compute_entropy (bool, optional): True computes the entropy, False sets it to nan. Entropy for infinite
+                measurement case is particularly slow to compute
         """
 
         # parameters
@@ -92,6 +95,10 @@ class LearningGame(DecisionMaker):
         self.time_bound = time_bound
         """time_bound (float): referred to as \mu_0 in the paper,
                 this is the short term bound on the time gap between samples"""
+
+        self.compute_entropy = compute_entropy
+        """compute_entropy (bool, optional): True computes the entropy, False sets it to nan. Entropy for infinite
+                measurement case is particularly slow to compute"""
 
         self.reset()
 
@@ -154,15 +161,21 @@ class LearningGame(DecisionMaker):
             )
 
         else:
-            if np.abs(np.sum(list(measurement.values())) - 1.) > 1e-6:
+            measurement_values = np.array(list(measurement.values()))
+            if np.abs(measurement_values.sum() - 1.) > 1e-6:
                 print(measurement.values())
                 print(np.sum(list(measurement.values())))
                 raise ValueError('Measurement should sum to 1. with precision of 1e-6.')
 
-            energies_array = np.zeros((len(self._action_set), len(self._measurement_set)))
-            for action_idx, action in enumerate(self._action_set):
-                for measurement_idx, measurement_m in enumerate(self._measurement_set):
-                    energies_array[action_idx, measurement_idx] = decay*self.energy[measurement_m][action]
+            # energies_array1 = np.zeros((len(self._action_set), len(self._measurement_set)))
+            # for action_idx, action in enumerate(self._action_set):
+            #     for measurement_idx, measurement_m in enumerate(self._measurement_set):
+            #         energies_array1[action_idx, measurement_idx] = decay*self.energy[measurement_m][action]
+
+            energies_array = np.array(
+                [list(self.energy[m].values()) for m in self._measurement_set]
+            )
+            energies_array = (decay * energies_array).T
 
         min_energy = np.min(energies_array, axis=0)
         exponent = -self.inverse_temperature * (energies_array - min_energy)
@@ -174,13 +187,18 @@ class LearningGame(DecisionMaker):
             pbar_a_c = probabilities / probabilities.sum()
             # P(a_k = a | F_k) = (\sum_c e_c.T@y_k P(a_k = a, c_k = c | F_k)) /
             #                    (\sum_c e_c.T@y_k sum_{\bar{a}} P(a_k = \bar{a}, c_k = c | F_k))
-            probabilities = np.array([pbar_a_c[:, meas_idx]*measurement[meas]
-                                  for meas_idx, meas in enumerate(self._measurement_set)]).sum(axis=0)
+            # probabilities = np.array([pbar_a_c[:, meas_idx]*measurement[meas]
+            #                       for meas_idx, meas in enumerate(self._measurement_set)]).sum(axis=0)
+
+            probabilities = (pbar_a_c * measurement_values).sum(axis=1)
 
         total = np.sum(probabilities)
         if self.finite_measurements:
             # compute entropy, in a way that is safe even if some probabilities become zero
-            entropy = -np.dot(probabilities, exponent) / total + np.log(total)
+            if self.compute_entropy:
+                entropy = -np.dot(probabilities, exponent) / total + np.log(total)
+            else:
+                entropy = np.nan
             # normalize probability
             probabilities = probabilities / total
         else:
@@ -189,8 +207,10 @@ class LearningGame(DecisionMaker):
                 probabilities += 1.
                 total = np.sum(probabilities)
             probabilities = probabilities / total
-            # TODO: add option for not computing this as it is the slowest line
-            entropy = sci_stats.entropy(probabilities)
+            if self.compute_entropy:
+                entropy = sci_stats.entropy(probabilities)
+            else:
+                entropy = np.nan
         return probabilities, entropy
 
     def get_action(

@@ -274,7 +274,6 @@ class TestContinuousMeasurementLearningGames(unittest.TestCase):
             rhs_running_inner_product = 0.
             rhs_running_indicator = 0.
 
-            print(measurement_fin)
             for idx in range(M):
                 action, prob, _ = lg_inf.get_action(measurement=measurement, time=idx,
                                                                        raw_measurement=raw_measurement)

@@ -63,7 +63,7 @@ will include the internal states of such agents, which could be correlated acros
       - It is necessary to install their package either by using Docker or installing per their README 
    2. For usability, it is easier to move the data to pickled objects.
    Assuming the 2018 data you downloaded is in `data/ember2018/`,
-   and the target location to store the pickled data: `this_project/data/`
+   and the target location to store the pickled data: `this_project/data/`. The data will total ~10GB.
    ```
    import ember
    import pickle
@@ -90,12 +90,20 @@ The following examples can be found in the `example/` folder:
 1. `rps_vs_bad_rng.ipynb`: a minimal example. learn optimal policy for the Rock-Paper-Scissors game, against an 
 opponent that uses a randomized policy with a bad generator of random numbers
 
-2. `rps_vs_bad_rng_nonstationary.py`: considers a setting similar to the former, except that the opponent switches random 
+2. `RPS_vs_fixed.ipynb`: learn optimal policy for the `Rock-Paper-Scissors` game, against an opponent that uses a fixed policy
+
+3. `RPS_vs_round_robin.ipynb`: learn optimal policy for the `Rock-Paper-Scissors` game, against an opponent that cycles between actions in a deterministic fashion
+
+4. `RPS_vs_bad_rng.ipynb`: learn optimal policy for the `Rock-Paper-Scissors` game, against an opponent that uses a randomized policy with a bad generator of random numbers
+
+5. `RPS_selfplay.ipynb`: learn optimal policy for the `Rock-Paper-Scissors` game, against an opponent that uses the same learning algorithm
+
+6. `rps_vs_bad_rng_nonstationary.py`: considers a setting similar to the former, except that the opponent switches random 
     number generators partway through the game. Compares against relevant alternative strategies, which can take several
     minutes to run. As such, results are persisted so that visualization can be done separately.
     - `rps_plot.py`: Visualize results by running with appropriate file path of results.
 
-3. `ember_malware_classification.py`: run the EMBER malware classification example with goal of minimizing weighted sum
+7. `ember_malware_classification.py`: run the EMBER malware classification example with goal of minimizing weighted sum
 of classification error (false positives and false negatives). Compares against relevant benchmarks that are generally
 slow, so it persists results to pkl files. Note the extra installation required to get the dataset.
    - `ember_plot.py`: Visualize results by running with file path of results 
