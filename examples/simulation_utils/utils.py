@@ -5,6 +5,7 @@ from copy import deepcopy
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
+import pickle
 
 
 def plot_simulation_results(iters, costs, average_costs, entropies, average_cost_bounds=None, title_prefix=""):
@@ -135,12 +136,16 @@ def generate_probabilities_matrix(prob_matrix: np.array) -> (list[str], np.array
 class GamePlay:
     """Creates a game for each decision maker to play. Runs in series, but could be parallelized."""
     def __init__(self, decision_makers: list, game, horizon: int,
-                 disp_results_per_iter: int, store_energy_hist: bool, binary_cont_measurement: bool = False):
+                 disp_results_per_iter: int, store_energy_hist: bool,
+                 time_index: np.ndarray = None, binary_cont_measurement: bool = False):
         """
         Args:
             decision_makers (list): decision-making algorithms to be tested
             game: an instance of a game to play # TODO: should specify type
             horizon (int): the horizon of the game
+            time_index (np.ndarray, optional): array of the times associated with each index.
+                        Default is None, in which case it uses an index based on horizon (i.e. 1 unit time between each
+                        sample.
             disp_results_per_iter (int): how often to output current gameplay info (1 is every step)
             binary_cont_measurement (bool): whether to plot current policy at each disp_results_per_iter. Only supported
                                             for binary continuous measurement settings.
@@ -149,16 +154,20 @@ class GamePlay:
         self.decision_makers = decision_makers  # each decision maker will
         self.game = game
         self.horizon = horizon
+        if time_index is not None:
+            self.time_iter = time_index[:-1]
+        else:
+            self.time_iter = range(self.horizon - 1)
         self.disp_results_per_iter = disp_results_per_iter
         self.binary_cont_measurement = binary_cont_measurement
         self._store_energy_hist = store_energy_hist
 
-    def play_games(self) -> dict[dict]:
+    def play_games(self, save_to: str):
         """ Play all the games
-        Returns: dictionary of all game outcomes, which are dictionaries of relevant statistics
+        Args:
+            save_to (str): directory to save outputs to
 
         """
-        outputs = dict()
         for decision_maker in self.decision_makers:
             game_i = deepcopy(self.game)  # create a copy of the game
             algorithm_name = decision_maker.__class__.__name__
@@ -168,16 +177,17 @@ class GamePlay:
             if algorithm_name == 'LearningGame':
                 algorithm_name = r'Boltzmann Learning | $\lambda={:.1e}, \beta={:.1e}$'\
                     .format(decision_maker.decay_rate, decision_maker.inverse_temperature)
-            outputs[algorithm_name] = self._play_game(game_i, decision_maker)
+            output = self._play_game(game_i, decision_maker)
+            with open(save_to + f'/{algorithm_name}.pkl', 'wb') as f:
+                pickle.dump(output, file=f)
         print('Finished playing games.')
-        return outputs
 
     def _play_game(self, game, decision_maker) -> dict:
         """
         Play a particular game. Helper function for self.play_games()
         Args:
             game: the game to play  #TODO: needs typing
-            decision_maker (decision_maker.DecisionMaker): the agent to make decisions #TODO: needs typing
+            decision_maker (decision_maker.DecisionMaker): the agent to make decisions
 
         Returns: (dict) containing a summary of relevant statistics from the simulation
 
@@ -191,16 +201,16 @@ class GamePlay:
         probs = []
         energies = dict()
         start_time = time.perf_counter()
-        for idx in range(self.horizon - 1):
+        for idx, time_i in enumerate(self.time_iter):
             # Play
             measurement, raw_measurement = game.get_measurement()
-            action, prob, entropy[idx] = decision_maker.get_action(measurement=measurement, time=idx,
+            action, prob, entropy[idx] = decision_maker.get_action(measurement=measurement, time=time_i,
                                                                    raw_measurement=raw_measurement)
             # print('action time {}'.format(time.perf_counter() - st))
             costs[idx], all_costs, opponent_action = game.play(action)
             p1_action.append(action)
             probs.append(prob)
-            if self._store_energy_hist:
+            if self._store_energy_hist: # TODO: uncomment
                 if hasattr(decision_maker, 'energy'):
                     # TODO: should be a cleaner way to do this but gets around immutability of dict
                     for key, val in decision_maker.energy.items():
@@ -216,7 +226,8 @@ class GamePlay:
             # Learn
             decision_maker.update_energies(measurement=measurement, costs=all_costs, action=action,
                                            raw_measurement=raw_measurement,
-                                           time=idx, action_cost=costs[idx], opponent_action=opponent_action)
+                                           time=time_i, action_cost=costs[idx], opponent_action=opponent_action, idx=idx)
+            elapsed_time = time.perf_counter() - start_time
             # Store regret
             try:
                 # TODO: ideally all decision makers will have regret function
@@ -228,11 +239,10 @@ class GamePlay:
             if (idx % self.disp_results_per_iter == 0) or (idx == self.horizon - 1):
                 print(idx)
                 if idx > 0:
-                    elapsed_time = time.perf_counter() - start_time
                     print('Elapsed time: {} | Average per step time: {}'.format(elapsed_time, elapsed_time / idx))
 
                 if self.binary_cont_measurement:
-                    plot_binary_policy(decision_maker=decision_maker, game=game, time_idx=idx)
+                    plot_binary_policy(decision_maker=decision_maker, game=game, time_idx=time_i)
         elapsed_time = time.perf_counter() - start_time
         print('Total time: {} | Average per step time: {}'.format(elapsed_time, elapsed_time/self.horizon))
         iters = range(self.horizon)

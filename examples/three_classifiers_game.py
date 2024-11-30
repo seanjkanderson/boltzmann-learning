@@ -1,10 +1,12 @@
 import itertools
 
 import numpy as np
+import pandas as pd
 from scipy.stats import norm, multivariate_normal
+import matplotlib.pyplot as plt
 
-from dataset_game import DatasetGame
-from utils import generate_probabilities_matrix
+from examples.simulation_utils.dataset_game import DatasetGame
+from examples.simulation_utils.utils import generate_probabilities_matrix
 
 
 class ThreeClassifiersGame(DatasetGame):
@@ -129,6 +131,13 @@ def three_classifiers(n_points: int, finite_measurements: bool, case: int, measu
         measurement_sequence_1 = joint_probs * marginal_p1 * marginal_p2 * marginal_p3
         measurement_sequence = np.vstack((1-measurement_sequence_1, measurement_sequence_1)).T
         outcomes = ['0', '1']
+    elif measurement_case == 5:
+        # measurement_sequence, outcomes = phi(indep_probs.mean(axis=1))
+        measurement_sequence, outcomes = phi_grid(indep_probs)
+        # measurement_sequence = np.vstack(threshold_classes).T
+        measurement_sequence = measurement_sequence / measurement_sequence.sum(axis=1)[..., np.newaxis]
+        # measurement_sequence = measurement_sequence.T
+        # outcomes = [str(np.round(tau, 2)) for tau in thresholds]
 
     random_values = np.random.uniform(size=len(measurement_sequence_1))
     p2_act_sequence = (random_values < measurement_sequence_1).astype(int)
@@ -139,20 +148,38 @@ def three_classifiers(n_points: int, finite_measurements: bool, case: int, measu
     return measurement_sequence, p2_act_sequence, classifier_prediction, outcomes
 
 
-if __name__ == '__main__':
-    from src.LearningGames import LearningGame
-    from src.utils import plot_simulation_results
+def phi(measurement_sequence):
+    thresholds = np.arange(0, 1, 0.05)
+    gamma = 50.
+    measurement_set = [str(np.round(tau, 2)) for tau in thresholds]
+    threshold_classes = [np.exp(-gamma * np.abs(measurement_sequence - tau)) for tau in thresholds]
+    measurement_sequence = np.vstack(threshold_classes).T
+    measurement_sequence = measurement_sequence / measurement_sequence.sum(axis=1)[..., np.newaxis]
+    return measurement_sequence, measurement_set
 
-    finite_meas = True
+
+def phi_grid(measurement_sequence):
+    thresholds = np.arange(0, 1, 0.2)
+    gamma = 15.
+    measurement_set = [str(np.round(t1, 2))+str(np.round(t2, 2))+str(np.round(t3, 2)) for t1, t2, t3 in itertools.product(thresholds, thresholds, thresholds)]
+    threshold_classes = [np.exp(-gamma * np.linalg.norm(measurement_sequence - np.array([t1, t2, t3]), axis=1)) for t1, t2, t3 in itertools.product(thresholds, thresholds, thresholds)]
+    measurement_sequence_out = np.vstack(threshold_classes).T
+    measurement_sequence_out = measurement_sequence_out / measurement_sequence_out.sum(axis=1)[..., np.newaxis]
+    return measurement_sequence_out, measurement_set
+
+
+if __name__ == '__main__':
+    from src.learning_games import LearningGame
+    from examples.simulation_utils.utils import plot_simulation_results
+
+    finite_meas = False
     M = 100_000
     m_iter = int(M/10)
     type1 = 1.
     type2 = 1.
     def_rng = np.random.default_rng(11)
     case = 2
-    meas_case = 1
-    kernel = lambda x, y: np.exp(-200 * np.linalg.norm(x - y, 2, axis=-1))
-    kernel = None
+    meas_case = 5
 
     meas_sequence, p2_act_sequence, classifier_action, outcomes_set = three_classifiers(M,
                                                                                         finite_measurements=finite_meas,
@@ -163,7 +190,7 @@ if __name__ == '__main__':
                                 measurement_sequence=meas_sequence, measurement_set=outcomes_set,
                        action_set=[0, 1], type1_weight=type1, type2_weight=type2, finite_measurements=finite_meas)
     lg = LearningGame(game.action_set, measurement_set=game.measurement_set, finite_measurements=finite_meas,
-                                    decay_rate=0., inverse_temperature=1e-2, seed=0, kernel=kernel)
+                                    decay_rate=0., inverse_temperature=1e-2, seed=0, compute_entropy=False)
 
     lg.reset()
 
@@ -172,14 +199,22 @@ if __name__ == '__main__':
     entropy = np.zeros(M)
     classifier_cost = []
     p1_action = []
+    energies = dict()
     tt = 0
     tt_one = 0
     for idx in range(M-1):
         # Play
-        measurement = game.get_measurement()
+        measurement, _ = game.get_measurement()
         (action, prob, entropy[idx]) = lg.get_action(measurement, idx)
-        (costs[idx], all_costs) = game.play(action)
+        (costs[idx], all_costs, _) = game.play(action)
         p1_action.append(action)
+        for key, val in lg.energy.items():
+            for key2, val2 in val.items():
+                total_key = key + str(key2)
+                if total_key not in energies.keys():
+                    energies[total_key] = []
+                energies[total_key].append(val2)
+
         # Learn
         lg.update_energies(measurement, all_costs, idx)
         # Store regret
@@ -216,3 +251,10 @@ if __name__ == '__main__':
         print('{} | p_0: {:0.2f}'.format(key, prob_m[0]))
 
     plot_simulation_results(iters, costs, average_costs, [entropy], average_cost_bounds=None, title_prefix="Dataset Game")
+
+    opts = [str(i) + str(j) + str(k) for i, j, k in itertools.product([0, 1], [0, 1], [0, 1])]
+    df = pd.DataFrame.from_dict(energies, orient='columns')
+    for opt in opts:
+        df['weight' + opt] = df[opt + '1'] / (df[opt + '1'] + df[opt + '0'])
+        plt.plot(df['weight' + opt])
+    plt.show()

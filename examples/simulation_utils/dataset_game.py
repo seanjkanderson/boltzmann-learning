@@ -74,6 +74,7 @@ class DatasetGame(metaclass=ABCMeta):
             raise ValueError('player 2 ran out of actions or there are no more measurements')
 
         # select action for player 2 (i.e. read topic for label/cost/opponent action.)
+
         p2_action = self.opponent_action_sequence[self.counter]
         # update measurement (i.e. read topic for measurements)
         self.counter += 1

@@ -89,12 +89,12 @@ class RPSVsBadRNG:
 
 if __name__ == '__main__':
     from sklearn import svm, neural_network
-    from examples.benchmark_methods import BayesianEstimator, SklearnModel, PrescientBayes
+    from examples.benchmark_methods import BayesianEstimator, SklearnModel
     from examples.simulation_utils.utils import GamePlay
     from learning_games import LearningGame
     import pickle
 
-    M: int = 103_000  # the total number of rounds to play the game
+    M: int = 101_000  # the total number of rounds to play the game
     length_measurement: int = 5  #
     switch_time = 20_000
     beta_values = [1e-2, 1e-1, 1e0, 1e1]
@@ -129,8 +129,6 @@ if __name__ == '__main__':
 
     bayesian1 = BayesianEstimator(action_set=game.action_set, measurement_set=game.measurement_set)
     bayesian2 = BayesianEstimator(action_set=game.action_set, measurement_set=game.measurement_set)
-    opt_pol = PrescientBayes(bayes_estimator_1=bayesian1, bayes_estimator_2=bayesian2,
-                            switch_time=switch_time, finish_time=M)
 
     bayesian = BayesianEstimator(action_set=game.action_set, measurement_set=game.measurement_set)
     methods = [bayesian]
@@ -159,8 +157,6 @@ if __name__ == '__main__':
               update_frequency=update_freq, model=nn_model)
     methods.append(svm)
     methods.append(mlp)
-    methods.append(opt_pol)
-    methods.append(opt_pol)
     methods.reverse()
 
     gp = GamePlay(decision_makers=methods,
@@ -169,7 +165,4 @@ if __name__ == '__main__':
                   disp_results_per_iter=int(M/10),
                   binary_cont_measurement=False,
                   store_energy_hist=False)
-    outcomes = gp.play_games()
-
-    with open('../data/rps_{}_{}.pkl'.format(M, str(measurement_to_label)), 'wb') as f:
-        pickle.dump((outcomes, methods), f)
+    gp.play_games(f'../data/rps_{M}_{str(measurement_to_label)}')

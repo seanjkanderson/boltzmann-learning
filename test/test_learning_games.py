@@ -274,6 +274,7 @@ class TestContinuousMeasurementLearningGames(unittest.TestCase):
             rhs_running_inner_product = 0.
             rhs_running_indicator = 0.
 
+            print(measurement_fin)
             for idx in range(M):
                 action, prob, _ = lg_inf.get_action(measurement=measurement, time=idx,
                                                                        raw_measurement=raw_measurement)
@@ -333,7 +334,7 @@ class TestContinuousMeasurementLearningGames(unittest.TestCase):
         pass
 
     def test_theorem_2(self):
-        """checks to make sure that the inequality in Theorem 2 holds for a variety"""
+        """checks to make sure that the inequality in Theorem 2 holds."""
         action_set = ["a1", "a2", "a3"]
         measurement_set = ["y1", "y2"]
         # use low temperature to converge to deterministic very fast, but bound is bad
@@ -399,6 +400,7 @@ class TestContinuousMeasurementLearningGames(unittest.TestCase):
                 self.assertLessEqual(lhs, rhs)
 
     def test_nonextrema_bound(self):
+        # TODO: remove? seems to be essentially the same as theorem 2 bound (above)
         action_set = ["a1", "a2", "a3"]
         measurement_set = ["y1", "y2"]
         beta = 1.
@@ -473,7 +475,6 @@ class TestContinuousMeasurementLearningGames(unittest.TestCase):
         v2 = np.zeros((len(measurement_set),))
         v3 = v2
         z = {action_set[0]: v1, action_set[1]: v2, action_set[2]: v3}
-        # because it's an LP, the min/max occur on the boundaries of the feasible region.
         vmax = [np.max(z[a]) for a in action_set]
         dt = 1.
         decay = np.exp(-decay_rate * dt)

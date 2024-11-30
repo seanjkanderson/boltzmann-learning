@@ -4,6 +4,7 @@ from typing import Any
 
 import pickle
 import pandas as pd
+import datetime as dt
 import matplotlib.ticker as ticker
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
@@ -95,7 +96,7 @@ def plot_comparison(iters, methods: list, costs: list, average_costs: list,
     ax0.set_ylabel('Cost', fontsize=label_fs)
     ax1.set_ylabel('(Rolling) mean absolute error \n $|p_i - l_i|$', fontsize=label_fs)
     ax2.set_ylabel('Conditional action \n selection probability', fontsize=label_fs)  # Label the secondary y-axis for weights
-    ax0.set_ylim((0.03, .18))
+    # ax0.set_ylim((0.03, .18))
     # ax1.set_ylim((0., .15))
     ax0.set_title(f"{title_prefix}")
 
@@ -179,32 +180,31 @@ def data_preprocessing(outcomes: dict[str, dict[str, Any]]):
                 for opt in opts:
                     df['weight' + opt] = df[opt + '1']
 
+
+
     return iters, df, costs, average_costs, methods
 
 
 if __name__ == '__main__':
 
-    type1_weight = 2.0
+    type1_weight = 1.0
     type2_weight = 1.0
-    n_train = 150000
-    n_test = 600000
-    header_timestamp: bool = False
-    window_size = 50_000
+    n_train = 30000
+    n_test = 350000
     unit_step: bool = False
+    meas = lambda tt: np.mean(tt, axis=0)
     if unit_step:
         step = '_unit'
     else:
         step = ''
-    if header_timestamp:
-        base_file = f'../data/ember_ts{step}_{n_train}_{n_test}'
-        classifier_file = f'_classifier.pkl'
-        file_dir = base_file + f'_{type1_weight}_{type2_weight}_ya2j_nonraw_wenergy'
-    else:
-        base_file = f'../data/ember_game_{n_train}_{n_test}'
-        classifier_file = f'../data/ember_game_{n_train}_{n_test}{type1_weight}_{type2_weight}_classifier.pkl'
-        file_dir = base_file + f'{step}_{type1_weight}_{type2_weight}_ya2j_raw_noenergy'
+
+    classifier_file = f'../data/ember_monthly{type1_weight}_{type2_weight}_classifier.pkl'
+    file_dir = f'../data/ember_monthly{step}_{type1_weight}_{type2_weight}_ya2j_raw_noenergy'
     outfile = file_dir
     print(file_dir)
+
+    with open(f'../data/ember_monthly_{type1_weight}_{type2_weight}_benchmark_costs.pkl', 'rb') as f:
+        cost_over_months = pickle.load(file=f)
 
     sim_outcomes = dict()
     for file in os.listdir(file_dir):
@@ -218,20 +218,53 @@ if __name__ == '__main__':
     # load data
     with open(classifier_file, 'rb') as f:
         classifier_perf = pickle.load(f)
-
+    classifier_perf['month'] = classifier_perf['appeared'].dt.month
+    months_ref = classifier_perf['appeared'].dt.month
+    classifier_perf.drop(columns=['appeared'], inplace=True)
+    classifier_cost_stats = classifier_perf.groupby('month')[['cost_0.25', 'cost_0.5', 'cost_0.75']].apply(meas)
+    # classifier_cost_stats = temp[]
+    classifier_cost_stats.index = [dt.datetime(2018, i, 1) for i in classifier_cost_stats.index]
     # with open(filename, 'rb') as f:
     #     try:
     #         sim_outcomes = pickle.load(f)
     #     except:
     #         sim_outcomes, _ = pickle.load(f)
 
-    x_iters, processed_data, costs, average_costs, methods_list = data_preprocessing(outcomes=sim_outcomes)
+    # x_iters, processed_data, costs, average_costs, methods_list = data_preprocessing(outcomes=sim_outcomes)
+    bl_results = dict()
+    idx = range(2, 13)
+    for key, item in sim_outcomes.items():
+        bl_results[key] = []
+        for month in idx:
+            monthly_result = item['costs'][months_ref == month]
+            cost_measure = meas(monthly_result)
+            bl_results[key].append(cost_measure)
+    bl_costs = pd.DataFrame.from_dict(bl_results, orient='columns')
+    bl_costs.index = [dt.datetime(2018, i, 1) for i in idx]
+    bl_costs = bl_costs.iloc[:, np.argmin(bl_costs.sum())]
 
-    plot_comparison(iters=x_iters, methods=methods_list,
-                    costs=costs,
-                    average_costs=average_costs,
-                    average_cost_bounds=None,
-                    title_prefix='',
-                    weights=processed_data,
-                    stationary_classifier=classifier_perf,
-                    window=window_size)
+    ml_costs_d = dict(SVR=[], MLPRegressor=[])
+    idx = range(1, 12)
+    for pre in ['SVR', 'MLPRegressor']:
+        for i in idx:
+            temp = cost_over_months[pre + f'_{i}']
+            ml_costs_d[pre].append(meas(temp))
+    ml_costs = pd.DataFrame.from_dict(ml_costs_d, orient='columns')
+    ml_costs.index = [dt.datetime(2018, i, 1) for i in range(2, 13)]
+
+    fig, ax = plt.subplots(figsize=(10, 7))
+
+    ax.plot(ml_costs['MLPRegressor'], color='red', label='MLP')
+    ax.plot(ml_costs['SVR'], color='orange', label='SVM')
+
+    ax.plot(classifier_cost_stats.index, classifier_cost_stats['cost_0.25'], linestyle='-.', label='Threshold = 0.25', color='black')
+    ax.plot(classifier_cost_stats.index, classifier_cost_stats['cost_0.5'], linestyle='-.', label='Threshold = 0.5', color='grey')
+    ax.plot(classifier_cost_stats.index, classifier_cost_stats['cost_0.75'], linestyle='-.', label='Threshold = 0.75', color='brown')
+
+    bl_costs.plot(ax=ax, color='darkgreen')
+    ax.set_ylim([0, 0.1])
+    ax.set_xlim([dt.datetime(2018, 2, 1), dt.datetime(2018, 12, 1)])
+    ax.grid()
+    ax.legend()
+    ax.set_ylabel('Average cost')
+    plt.show()

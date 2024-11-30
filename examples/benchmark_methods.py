@@ -12,7 +12,7 @@ class SklearnModel(DecisionMaker):
     def __init__(self, model: BaseEstimator, window_size: int, measurement_set: list, action_set: list,
                  finite_measurement: bool,
                  update_frequency: int = 1, raw_measurement: bool = False, measurement_to_label: bool = False,
-                 policy_map: dict = None):
+                 policy_map: dict = None, use_time_index: bool = False):
         """
 
         Args:
@@ -29,6 +29,7 @@ class SklearnModel(DecisionMaker):
                 Default to False (i.e. use processed measurements)
             measurement_to_label (bool, optional):
             policy_map:
+            use_time_index: TODO: finish
         """
 
         self.model_copy = deepcopy(model)  # ensures there is no data leakage
@@ -46,6 +47,8 @@ class SklearnModel(DecisionMaker):
                                  'map/dict to map labels to actions.')
         self.inputs = []
         self.outputs = []
+        self.time_index = []
+        self.previous_time = 0
 
         # map the measurement set to a one-hot encoding
         self.model = model
@@ -53,6 +56,7 @@ class SklearnModel(DecisionMaker):
         self.encoding_map = self.one_hot_encoding(measurement_set)
         self.action_set = action_set
         self.action_encoding_map = self.one_hot_encoding(action_set)
+        self.use_time_index = use_time_index
 
     @staticmethod
     def one_hot_encoding(option_set: list) -> dict:
@@ -160,6 +164,7 @@ class SklearnModel(DecisionMaker):
                 self.model = deepcopy(self.model_copy)
                 self.model.fit(np.array(self.inputs), np.array(self.outputs))
                 self.model_degenerate = False
+                print(f'(Re)trained model. {len(self.inputs)} samples')
             except ValueError as e:
                 print('model is degenerate with {} samples | {}'.format(len(self.outputs), e))
                 self.model_degenerate = True

@@ -92,7 +92,7 @@ def load_ember_data(ember_data_path: str):
     return data
 
 
-def ember_classifier(ember_data, n_train: int, n_test: int,
+def ember_classifier(ember_data,
                      type1_weight: float, type2_weight: float, base_model_file: str, time_sort: bool) -> tuple:
     """
     Prepares the data from EMBER to be streamed in "real-time" fashion. First the data is loaded, then sorted by time-
@@ -100,8 +100,6 @@ def ember_classifier(ember_data, n_train: int, n_test: int,
     are stored in arrays with raw features, predictions, and ground-truth labels for the purposes of testing. The
     performance of the LightGBM models is stored in a file with the base path: base_model_file
     Args:
-        n_train (int): the number of training points
-        n_test (int): the number of test points
         type1_weight (float): the weight associated with false positives
         type2_weight (float): the weight associated with false negatives
         base_model_file (str): the file path for the models to be persisted to
@@ -115,39 +113,32 @@ def ember_classifier(ember_data, n_train: int, n_test: int,
     y_total = np.hstack((ember_data['y_train'], ember_data['y_test'])).T
     # load metadata about dates
     meta_df = pd.read_json('../data/extracted_data.jsonl', lines=True)
-    # only include the labeled points
-    x_total = x_total[y_total >= 0.]
-    y_total = y_total[y_total >= 0.]
     # only include data in 2018 to prevent training only on benign samples, which is all of them pre-2018
     # if not time_sort:
     #     cutoff_idx = np.where(pd.to_datetime(meta_df['appeared']) >= dt.datetime(2018, 1, 1))[0][0]
     #     x_total = x_total[cutoff_idx:]
     #     y_total = y_total[cutoff_idx:]
     dates = pd.to_datetime(pd.Series(meta_df['appeared']))
-    time_array = (dates.dt.year - dates.iloc[0].year) * 12 + (dates.dt.month - dates.iloc[0].month)
-    if time_sort:
-        # sort based on the timestamp
-        time_sort = x_total[:, 626].argsort()
-        x_total = x_total[time_sort]
-        y_total = y_total[time_sort]
-        time_array = (x_total[:, 626] / 86400).round() - x_total[:, 626].min()  # time in days
+    time_array = dates.dt.month
+    # only include the labeled points
+    x_total = x_total[y_total >= 0.]
+    time_array = time_array[y_total >= 0.]
+    y_total = y_total[y_total >= 0.]
+    n_train = np.where(dates <= dt.datetime(2018, 1, 15))[-1][-1]
+    # test on the first month so that models will have access to data for second month
+    n_test = np.where(dates >= dt.datetime(2018, 1, 1))[0][0]
     n_points = len(y_total)
     print(f'{n_points} points')
     # break into train and test sets
-    x_train = x_total[:n_train]
-    x_test = x_total[n_train:n_train + n_test]
+    x_test = x_total[n_test:]
     # scale the features (not strictly necessary)
     # x_train, x_scale = normalize_features(x_train)
     # x_test, _ = normalize_features(x_test, x_scale)
 
     measurement_sequences = []
-    y_train = y_total[:n_train]
-    y_test = y_total[n_train:n_train + n_test]
-    time_array = time_array[n_train:n_train + n_test] - time_array[n_train]  # make the time start at zero
-    if len(y_train) < n_train:
-        raise IndexError('Not enough points in training set')
-    if len(y_test) < n_test:
-        raise IndexError('Not enough points in test set')
+    y_test = y_total[n_test:]
+    time_array = time_array.values  # TODO: clean up code
+    time_array = time_array[n_test:] - time_array[n_test]  # make the time start at zero
 
     params_paper = {
         "boosting": "gbdt",
@@ -156,29 +147,6 @@ def ember_classifier(ember_data, n_train: int, n_test: int,
         "learning_rate": 0.05,
         "num_leaves": 2048,
         # "num_leaves": 31,
-        "max_depth": 15,
-        "min_data_in_leaf": 50,
-        "feature_fraction": 0.5
-    }
-
-    params_2 = {
-        "boosting": "gbdt",
-        "objective": "binary",
-        "num_iterations": 1000,
-        "learning_rate": 0.01,
-        "num_leaves": 512,
-        # "num_leaves": 31,
-        "max_depth": 10,
-        "min_data_in_leaf": 20,
-        "feature_fraction": 0.5
-    }
-
-    params_3 = {
-        "boosting": "rf",
-        "objective": "binary",
-        "num_iterations": 750,
-        "learning_rate": 0.05,
-        "num_leaves": 1024,
         "max_depth": 15,
         "min_data_in_leaf": 50,
         "feature_fraction": 0.5
@@ -229,6 +197,7 @@ def ember_classifier(ember_data, n_train: int, n_test: int,
         error_df['cost_c1_{}'.format(tau)] = threshold_and_cost(measurement_sequences[0], tau)
 
     error_df['label'] = p2_act_sequence
+    error_df['appeared'] = pd.to_datetime([f'2018-{m+1:02d}-01' for m in time_array])
     for i in range(n_classifiers):
         error_df['mae_{}'.format(i)] = np.abs(error_df['pred_prob_{}'.format(i)] - error_df['label'])
 
@@ -249,6 +218,39 @@ def phi_grid(measurement_sequence):
     measurement_sequence_out = np.vstack(threshold_classes).T
     measurement_sequence_out = measurement_sequence_out / measurement_sequence_out.sum(axis=1)[..., np.newaxis]
     return measurement_sequence_out, measurement_set
+
+
+def vectorized_ml_play(x_raw, time_array, game, y, svm, mlp):
+    cost_over_months = dict()
+    action_0 = np.zeros((len(x_raw), 2))
+    action_0[:, 0] = 1.
+    action_1 = np.zeros((len(x_raw), 2))
+    action_1[:, 0] = 1.
+    for model in [svm.model, mlp.model]:
+        key = model.__class__.__name__
+        for month in np.unique(time_array)[1:]:
+            print(month)
+            prev_idx = time_array == month-1
+            current_idx = time_array == month
+            y_train_sub = y[prev_idx]
+            y_test_sub = y[current_idx]
+            pred_costs = []
+            for act_i, act in enumerate([action_0, action_1]):
+                costs = np.array([game.cost(act_i, y) for y in y_train_sub])
+                # x_total = np.hstack((raw_measurements, act))
+                x_train = x_raw[prev_idx]
+                # y_train = p2_act_sequence[prev_idx]
+                x_test = x_raw[current_idx]
+                # y_test = p2_act_sequence[current_idx]
+                model.fit(x_train, costs)
+                pred_costs.append(model.predict(x_test))
+            pred_cost_arr = np.array(pred_costs).T
+            sel_action = np.argmin(pred_cost_arr, axis=1)
+            eval_cost = np.array([game.cost(my_act, y) for my_act, y in zip(sel_action, y_test_sub)])
+            cost_over_months[key + f'_{month}'] = eval_cost
+    with open(f'ember_monthly_{type1}_{type2}_benchmark_costs.pkl', 'wb') as f:
+        pickle.dump(cost_over_months, file=f)
+    print('Finished ML games')
 
 
 def normalize_features(x: np.ndarray, x_scale: dict = None) -> tuple[np.ndarray, dict[str, np.ndarray]]:
@@ -279,7 +281,7 @@ def name_file(use_raw_measurement, measurement_to_label, store_energy, unit_step
         step = '_unit'
     else:
         step = ''
-    base_model_file = f'../data/ember_game_{n_train}_{M}'
+    base_model_file = f'../data/ember_monthly'
     raw_str = 'nonraw'
     if use_raw_measurement:
         raw_str = 'raw'
@@ -306,9 +308,7 @@ if __name__ == '__main__':
     ember_filepath: str = '../ember_data/'  # wherever you stored the ember dataset
     # (assumes files are x_train.pkl, y_train.pkl, x_test.pkl, y_test.pkl)
     sort_by_header_timestamp = False
-    M: int = 600_000  # the number of test points/game iterations
-    n_train: int = 150_000  # the number of training points
-    m_iter: int = int(M / 10)  # the printout frequency from game play
+    m_iter: int = 20_000  # the printout frequency from game play
     type1: float = 1.  # the weight for false pos
     type2: float = 1.  # the weight for false neg
     store_energy = False  # True: stores the energy and persists with rest of simulation data but is memory intensive
@@ -324,11 +324,11 @@ if __name__ == '__main__':
     # whether to learn a map from measurements to label (True) or estimate the cost associated with each action (False)
     measurement_to_label: bool = False
     # whether to use a unit step or the actual timestamps from the data
-    unit_step: bool = False
+    unit_step: bool = True
     # the window size H of recent data
-    data_window: int = 10_000
+    data_window: int = 500_000
     # the frequency at which the model is updated. More updates requires more time
-    update_freq: int = 10_000
+    update_freq: int = 1_000_000 # make arbitarily large so it only will update with new month
     # the mapping from labels to actions when learning measurement_to_label
     label_action_policy = {0: 0, 1: 1}
     # hidden layer sizes for NN/MLP
@@ -348,18 +348,17 @@ if __name__ == '__main__':
     base_model_file, total_file_dir = name_file(measurement_to_label=measurement_to_label,
                                             use_raw_measurement=use_raw_measurement,
                                             store_energy=store_energy, unit_step=unit_step)
+    print(total_file_dir)
     # load ember dataset
     dataset = load_ember_data(ember_filepath)
 
     # preprocess ember dataset into useful objects
     meas_sequence, raw_measurements, p2_act_sequence, \
         classifier_threshold, outcomes_set, classifier_perf, classifier_probs, time_diff = ember_classifier(ember_data=dataset,
-                                                                               n_train=n_train,
-                                                                               n_test=M,
                                                                                time_sort=sort_by_header_timestamp,
                                                                                base_model_file=base_model_file,
                                                                                type1_weight=type1, type2_weight=type2)
-
+    M = len(time_diff)
     # set raw measurements to classifier probs # TODO: formalize this so there are 3 options for ML input
     raw_measurements = classifier_probs
 
@@ -391,16 +390,26 @@ if __name__ == '__main__':
     svm = SklearnModel(window_size=data_window, action_set=game.action_set, measurement_set=game.measurement_set,
                        raw_measurement=use_raw_measurement, measurement_to_label=measurement_to_label,
                        finite_measurement=finite_meas, policy_map=label_action_policy,
-                       update_frequency=update_freq, model=svm_model)
+                       update_frequency=update_freq, model=svm_model,
+                       use_time_index=True)
 
     mlp = SklearnModel(window_size=data_window, action_set=game.action_set, measurement_set=game.measurement_set,
                        raw_measurement=use_raw_measurement, measurement_to_label=measurement_to_label,
                        finite_measurement=finite_meas, policy_map=label_action_policy,
-                       update_frequency=update_freq, model=nn_model)
+                       update_frequency=update_freq, model=nn_model,
+                       use_time_index=True)
+    # play the games in a vectorized fashion for speed, otherwise it will take much (>>) longer
+    vectorized_ml_play(x_raw=raw_measurements,
+                       time_array=time_diff,
+                       game=game,
+                       y=p2_act_sequence,
+                       svm=svm,
+                       mlp=mlp)
+
     # dm = []
-    dm.append(mlp)
-    dm.append(svm)
-    # dm.reverse()
+    # dm.append(svm)
+    # dm.append(mlp)
+    dm.reverse()
 
     if unit_step:
         time_diff = None

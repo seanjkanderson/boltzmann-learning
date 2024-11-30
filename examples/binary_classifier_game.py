@@ -1,6 +1,6 @@
 import numpy as np
 
-from src.dataset_game import DatasetGame
+from examples.simulation_utils.dataset_game import DatasetGame
 
 
 class BinaryClassifierGame(DatasetGame):
@@ -94,10 +94,10 @@ def toy_classifier(n_points, type1_weight, type2_weight, finite_measurements: bo
 def phi(measurement_sequence):
     thresholds = np.arange(0, 1, 0.05)
     gamma = 50.
+    measurement_set = [str(np.round(tau, 2)) for tau in thresholds]
     threshold_classes = [np.exp(-gamma * np.abs(measurement_sequence - tau)) for tau in thresholds]
     measurement_sequence = np.vstack(threshold_classes).T
     measurement_sequence = measurement_sequence / measurement_sequence.sum(axis=1)[..., np.newaxis]
-    measurement_set = [str(np.round(tau, 2)) for tau in thresholds]
     return measurement_sequence, measurement_set
 
 
@@ -137,8 +137,8 @@ def nonstationary_classifier(n_points, type1_weight, type2_weight, finite_measur
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
 
-    from src.utils import plot_simulation_results
-    from src.LearningGames import LearningGame
+    from examples.simulation_utils.utils import plot_simulation_results
+    from src.learning_games import LearningGame
 
     finite_meas = False
     meas_case = 1

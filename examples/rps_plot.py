@@ -34,7 +34,7 @@ def plot_simulations(df: pd.DataFrame,
         linewidth (float): Line width for plot lines
             Defaults to 1
     """
-    fig, ax0 = plt.subplots(figsize=(10, 7))
+    fig, ax0 = plt.subplots(figsize=(12, 7))
     # Plot costs, average cost, and entropy, from start
     name_map = {'PrescientBayes': 'Prescient Bayesian Estimator',
                 'BayesianEstimator': 'Bayesian Estimator',
@@ -130,25 +130,29 @@ def data_preprocessing(outcomes: dict[str, dict[str, np.ndarray]]
 
 
 if __name__ == '__main__':
-    file = '../data/rps_103000_False'
+    # specify filename of the simulation results. Leave off file extension as this will also be used for naming the
+    # resulting image generated (i.e. file = 'test' will read read 'test.pkl' and save an image 'test.png'
+    file = '../data/rps_102000_False'
     with open(file + '.pkl', 'rb') as f:
         sim_outcomes, _ = pickle.load(f)
 
-    rolling_window = 1_000
-    label_fs = 16
-    tick_fs = 14
-    legend_fs = 14
-    iterations_up_to = 100000
+    rolling_window = 1_000  # rolling average window size
+    label_fs = 16  # font size for figure labels
+    tick_fs = 14  # font size for ticks
+    legend_fs = 14  # legend font size
+    iterations_up_to = 100000  # iterations to include in results. Can be useful for focusing plot on early part of sim.
 
+    # colors for the lines for the results from boltzmann learning methods
     boltzmann_colors = ['blue', 'deepskyblue', 'green', 'limegreen']
-    bench_colors = ['red', 'orange', 'purple']
+    # colors for the lines from alternative/benchmark methods
+    benchmark_colors = ['red', 'orange', 'purple']
 
     x_iters, formatted_data = data_preprocessing(sim_outcomes)
     plot_simulations(df=formatted_data,
                      iters=x_iters,
                      window=rolling_window,
                      boltzmann_colors=boltzmann_colors,
-                     benchmark_colors=bench_colors,
+                     benchmark_colors=benchmark_colors,
                      iterations_up_to=iterations_up_to,
                      label_fs=label_fs,
                      tick_fs=tick_fs,
