@@ -103,7 +103,7 @@ opponent that uses a randomized policy with a bad generator of random numbers
     minutes to run. As such, results are persisted so that visualization can be done separately.
     - `rps_plot.py`: Visualize results by running with appropriate file path of results.
 
-7. `ember_malware_classification.py`: run the EMBER malware classification example with goal of minimizing weighted sum
+7. `malware_classification.py`: run the EMBER malware classification example with goal of minimizing weighted sum
 of classification error (false positives and false negatives). Compares against relevant benchmarks that are generally
 slow, so it persists results to pkl files. Note the extra installation required to get the dataset.
    - `ember_plot.py`: Visualize results by running with file path of results 

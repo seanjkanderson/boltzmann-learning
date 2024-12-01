@@ -1,6 +1,6 @@
 ## Secrete files
 memo.secret
-
+publicignore.sh
 
 ## Profiling files
 *.prof

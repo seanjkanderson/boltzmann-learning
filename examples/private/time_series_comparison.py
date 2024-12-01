@@ -3,7 +3,7 @@ import pandas as pd
 import datetime as dt
 import numpy as np
 
-df = pd.read_json('../data/extracted_data.jsonl', lines=True)
+df = pd.read_json('../../data/extracted_data.jsonl', lines=True)
 df['appeared'] = pd.to_datetime(df['appeared'])
 df['timestamp'] = pd.to_datetime(df['timestamp'], unit='s')
 
